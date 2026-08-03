@@ -8,13 +8,14 @@ export const APP_NAME = 'OpenAPI Companion'
 /** Single source of truth for the app version (also injected into the manifest). */
 export const APP_VERSION: string = pkg.version
 
-/** Fixed permission set (DD-035). Tests assert the manifest matches this. */
+/** Fixed permission set (DD-035; `sidePanel` added for the native Side Panel). */
 export const PERMISSIONS = [
   'storage',
   'activeTab',
   'scripting',
   'unlimitedStorage',
   'downloads',
+  'sidePanel',
 ] as const
 
 /** Current storage schema version (bumped via MigrationService, planning/08 §7). */

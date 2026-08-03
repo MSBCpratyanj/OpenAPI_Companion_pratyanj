@@ -8,6 +8,7 @@
 import { APP_NAME } from '@/constants'
 import { bus } from '@/core/events'
 import { MigrationService, chromeLocalArea } from '@/core/storage'
+import { OPEN_PANEL_REQUEST, PANEL_PORT, type PanelPortMessage } from '@/content/sidepanel-protocol'
 
 async function runMigrations(reason: string): Promise<void> {
   const migrations = new MigrationService({ area: chromeLocalArea(), bus })
@@ -27,15 +28,73 @@ chrome.runtime.onInstalled.addListener((details) => {
   void runMigrations(details.reason)
 })
 
+// Clicking the toolbar icon opens the native side panel (Chrome 114+).
+chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
+  console.error(`[${APP_NAME}] could not set side-panel behavior:`, error)
+})
+
+// Windows whose side panel is currently open → the panel's port, so we can ask
+// it to close itself. Populated while a panel holds a PANEL_PORT connection.
+const openPanels = new Map<number, chrome.runtime.Port>()
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PANEL_PORT) return
+  let windowId: number | null = null
+  port.onMessage.addListener((message: PanelPortMessage) => {
+    if (message.type === 'hello') {
+      windowId = message.windowId
+      openPanels.set(windowId, port)
+    }
+  })
+  port.onDisconnect.addListener(() => {
+    if (windowId != null) openPanels.delete(windowId)
+  })
+})
+
+/**
+ * Open the side panel for the given tab. Must be called synchronously within a
+ * user gesture (toolbar handles its own; here it's the keyboard command or the
+ * in-page launcher click, whose gesture carries into this worker).
+ */
+function openSidePanel(tab?: chrome.tabs.Tab): void {
+  const options =
+    tab?.id != null ? { tabId: tab.id } : tab?.windowId != null ? { windowId: tab.windowId } : null
+  if (!options) return
+  chrome.sidePanel?.open(options).catch((error) => {
+    console.error(`[${APP_NAME}] could not open side panel:`, error)
+  })
+}
+
+/** Toggle: close the panel if this window already has one open, else open it. */
+function toggleSidePanel(tab?: chrome.tabs.Tab): void {
+  const wid = tab?.windowId
+  const open = wid != null ? openPanels.get(wid) : undefined
+  if (open) {
+    open.postMessage({ type: 'close' } satisfies PanelPortMessage)
+    return
+  }
+  openSidePanel(tab)
+}
+
+// Keyboard shortcut (manifest `commands`) → toggle the panel for the active tab.
+chrome.commands?.onCommand.addListener((command, tab) => {
+  if (command === 'open-side-panel') toggleSidePanel(tab)
+})
+
 chrome.runtime.onStartup?.addListener(() => {
   console.info(`[${APP_NAME}] service worker started`)
 })
 
-// Message bridge stub (content <-> background). Full routing lands with the
-// content-script integration (T-01.9).
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+// Message bridge (content <-> background).
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'PING') {
     sendResponse({ type: 'PONG', app: APP_NAME })
+    return false
+  }
+  // In-page launcher button → toggle the panel for the sender's tab.
+  if (message?.type === OPEN_PANEL_REQUEST) {
+    toggleSidePanel(sender.tab)
+    return false
   }
   return false
 })

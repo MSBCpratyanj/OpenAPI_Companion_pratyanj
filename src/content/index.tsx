@@ -1,153 +1,217 @@
 /**
- * Content script entry.
+ * Content-script agent.
  *
- * Detect Swagger via the adapter, identify the project (stable id + default
- * environment) through ProjectService, initialise theming, and mount the
- * sidebar shell into an isolated Shadow DOM so our styles never leak into — or
- * inherit from — the host page. The original documentation is never modified.
- *
- * Tailwind is injected as a string into the Shadow DOM (`?inline`) so the design
- * tokens (:host) and component styles apply inside the shadow tree only.
+ * The UI now lives in the native Side Panel (a separate page). This script is
+ * the headless "agent" in the Swagger page: it detects the doc, identifies the
+ * project, runs all the ALWAYS-ON behaviors (auth restore + watch, request
+ * autosave, history capture, token auto-refresh) so they work whether or not the
+ * panel is open, and exposes the page to the panel over messaging — RPC for
+ * service/adapter calls, a pushed read-state mirror, and forwarded bus events.
+ * It never renders UI into the page.
  */
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import shadowCss from '@/styles/index.css?inline'
 import { bus } from '@/core/events'
-import { StorageService, chromeLocalArea, settingsKey } from '@/core/storage'
+import { StorageService, chromeLocalArea } from '@/core/storage'
 import { ProjectService, type ProjectMeta } from '@/core/project'
 import { docIdentityUrl } from '@/utils'
-import { SwaggerUiAdapter } from '@/adapters'
-import { ThemeManager, TokenRefreshService } from '@/services'
+import { SwaggerUiAdapter, type AuthSnapshot, type RequestSnapshot } from '@/adapters'
+import { TokenRefreshService } from '@/services'
 import { AuthenticationService } from '@/modules/authentication'
 import { RequestService } from '@/modules/request'
-import { EnvironmentService } from '@/modules/environment'
+import { EnvironmentService, type EnvironmentInput } from '@/modules/environment'
 import { HistoryService } from '@/modules/history'
-import { FakeDataService } from '@/modules/fake-data'
-import { ProductivityService } from '@/modules/productivity'
-import { SettingsService, ImportExportService } from '@/modules/settings'
-import { App } from '@/sidebar/App'
 import { SwaggerBridge } from './swagger-bridge'
+import { mountLauncher } from './launcher'
+import {
+  RPC_REQUEST,
+  STATE_PUSH,
+  EVENT_PUSH,
+  FORWARDED_EVENTS,
+  type AdapterReadState,
+  type PanelContext,
+  type PanelState,
+  type RpcResponse,
+} from './sidepanel-protocol'
 
-const CONTAINER_ID = 'openapi-companion-root'
-const COLLAPSED_KEY = settingsKey('sidebar-collapsed')
+const AGENT_FLAG = 'oacAgent'
+const LOG = '[OpenAPI Companion]'
 
 async function boot(): Promise<void> {
-  // The MAIN-world script (see manifest) exposes window.ui; this bridge relays
-  // auth read/write to it, since content scripts can't see window.ui directly.
+  console.info(`${LOG} content agent loaded:`, location.href)
   const bridge = new SwaggerBridge()
   const adapter = new SwaggerUiAdapter(bridge)
-  if (!adapter.detect()) return // not an OpenAPI page — stay dormant (EC-005)
-  if (document.getElementById(CONTAINER_ID)) return // prevent duplicate injection (EC-043)
+  if (!adapter.detect()) {
+    console.info(`${LOG} no Swagger UI detected on this page — staying dormant.`)
+    return // not an OpenAPI page — stay dormant (EC-005)
+  }
+  if (document.documentElement.dataset[AGENT_FLAG]) {
+    console.info(`${LOG} agent already running in this tab — skipping.`)
+    return // avoid double-injection (EC-043)
+  }
+  document.documentElement.dataset[AGENT_FLAG] = '1'
 
   const storage = new StorageService({ area: chromeLocalArea(), bus })
   const project = new ProjectService({ storage, bus })
   const identified = await project.identify({
     origin: location.origin,
-    // Stable across Swagger's hash routing + refresh so saved data isn't
-    // orphaned (must not include the volatile `#/…` fragment).
-    openApiUrl: docIdentityUrl(location.href),
+    openApiUrl: docIdentityUrl(location.href), // stable across Swagger's hash routing
     docType: 'swagger-ui',
   })
   const meta: ProjectMeta | null = identified.ok ? identified.value : null
+  if (!meta) {
+    console.warn(
+      `${LOG} could not identify the project:`,
+      identified.ok ? 'no meta' : identified.error,
+    )
+    return
+  }
+  console.info(`${LOG} agent ready — project "${meta.name}" (${meta.id}). Open the side panel.`)
 
-  // Settings + data portability are global (not project-scoped).
-  const settingsService = new SettingsService({ storage, bus })
-  const importExportService = new ImportExportService({ storage, bus })
+  mountLauncher() // floating button to open the panel from the page
 
-  let authService: AuthenticationService | undefined
-  let requestService: RequestService | undefined
-  let environmentService: EnvironmentService | undefined
-  let historyService: HistoryService | undefined
-  let fakeDataService: FakeDataService | undefined
-  let productivityService: ProductivityService | undefined
-  let activeEnvId: string | undefined
-  if (meta) {
-    const auth = new AuthenticationService({ storage, adapter, projectId: meta.id, bus })
-    const requests = new RequestService({ storage, adapter, projectId: meta.id, bus })
-    const environments = new EnvironmentService({ storage, projectId: meta.id, bus })
-    const history = new HistoryService({ storage, adapter, projectId: meta.id, bus })
-    const fakeData = new FakeDataService({ adapter, storage, projectId: meta.id, bus })
-    const productivity = new ProductivityService({ adapter, storage, projectId: meta.id, bus })
-    await productivity.init()
-    authService = auth
-    requestService = requests
-    environmentService = environments
-    historyService = history
-    fakeDataService = fakeData
-    productivityService = productivity
+  const auth = new AuthenticationService({ storage, adapter, projectId: meta.id, bus })
+  const requests = new RequestService({ storage, adapter, projectId: meta.id, bus })
+  const environments = new EnvironmentService({ storage, projectId: meta.id, bus })
+  const history = new HistoryService({ storage, adapter, projectId: meta.id, bus })
 
-    let currentEnv = meta.lastActiveEnvId
-    activeEnvId = currentEnv
+  let currentEnv = meta.lastActiveEnvId
 
-    // Token auto-refresh: when the stored credential is expired and a saved
-    // login request exists, run it and capture the fresh token automatically.
-    const tokenRefresh = new TokenRefreshService({ adapter, auth, templates: requests, bus })
-    bus.subscribe('AUTH_EXPIRED', (payload) => {
-      void tokenRefresh.refreshIfExpired(payload.environmentId)
-    })
+  // Token auto-refresh (opt-in; toggled from the Auth panel via RPC → runs here).
+  let autoRefreshEnabled = await auth.isAutoRefreshEnabled()
+  const tokenRefresh = new TokenRefreshService({
+    adapter,
+    auth,
+    templates: requests,
+    bus,
+    enabled: () => autoRefreshEnabled,
+  })
+  bus.subscribe(
+    'AUTH_EXPIRED',
+    (payload) => void tokenRefresh.refreshIfExpired(payload.environmentId),
+  )
+  bus.subscribe('SETTINGS_UPDATED', (payload) => {
+    if (payload.keys.includes('auto-refresh-token')) {
+      void auth.isAutoRefreshEnabled().then((on) => (autoRefreshEnabled = on))
+    }
+  })
 
-    // Auth (Sprint 4): restore + auto-capture. Requests (Sprint 6): auto-save on
-    // edit. History (Sprint 9): record executed responses. All react to Swagger
-    // DOM mutations via the adapter's observer.
-    await auth.restore(currentEnv) // publishes AUTH_EXPIRED → auto-refresh kicks in
-    await requests.autoRestoreOpen(currentEnv)
-    let stopAuthWatch = auth.watch(currentEnv)
-    adapter.observe(() => {
-      requests.autosaveOpen(currentEnv)
-      history.scheduleCapture(currentEnv)
-    })
+  // Always-on: restore auth, auto-restore drafts, watch, and react to DOM changes.
+  await auth.restore(currentEnv)
+  await requests.autoRestoreOpen(currentEnv)
+  let stopAuthWatch = auth.watch(currentEnv)
 
-    // Environment switch (Sprint 8): re-scope auth + requests to the new env.
-    bus.subscribe('ENVIRONMENT_CHANGED', (payload) => {
-      void (async () => {
-        currentEnv = payload.environmentId
-        stopAuthWatch()
-        const restored = await auth.restore(currentEnv)
-        if (restored.ok && restored.value == null) adapter.clearAuth() // isolate: no cred → log out
-        await requests.autoRestoreOpen(currentEnv)
-        stopAuthWatch = auth.watch(currentEnv)
-      })()
+  // --- Side Panel bridge ----------------------------------------------------
+
+  const buildState = (): PanelState => {
+    const context: PanelContext = {
+      projectId: meta.id,
+      projectName: meta.name,
+      docType: meta.docType,
+      environmentId: currentEnv,
+      pageOrigin: location.origin,
+    }
+    const adapterState: AdapterReadState = {
+      detect: adapter.detect(),
+      version: adapter.version(),
+      specUrl: adapter.specUrl(),
+      auth: adapter.readAuth(),
+      openRequests: adapter.readOpenRequests(),
+      executedResponses: adapter.readExecutedResponses(),
+      endpoints: adapter.listEndpoints(),
+    }
+    return { context, adapter: adapterState }
+  }
+
+  let pushTimer: ReturnType<typeof setTimeout> | null = null
+  const pushState = (): void => {
+    if (pushTimer) clearTimeout(pushTimer)
+    pushTimer = setTimeout(() => {
+      void chrome.runtime.sendMessage({ type: STATE_PUSH, state: buildState() }).catch(() => {})
+    }, 250)
+  }
+
+  adapter.observe(() => {
+    requests.autosaveOpen(currentEnv)
+    history.scheduleCapture(currentEnv)
+    void tokenRefresh.noticeResponses(currentEnv) // 401/403 → auto-refresh (if enabled)
+    pushState() // keep the panel's read-mirror fresh
+  })
+
+  // Environment switch re-scopes auth + requests (switch runs here via RPC, so
+  // its ENVIRONMENT_CHANGED fires on this bus).
+  bus.subscribe('ENVIRONMENT_CHANGED', (payload) => {
+    void (async () => {
+      currentEnv = payload.environmentId
+      stopAuthWatch()
+      const restored = await auth.restore(currentEnv)
+      if (restored.ok && restored.value == null) adapter.clearAuth()
+      await requests.autoRestoreOpen(currentEnv)
+      stopAuthWatch = auth.watch(currentEnv)
+      pushState()
+    })()
+  })
+
+  // RPC dispatch: "<service|adapter>.<method>" → the real call.
+  const rpc: Record<string, (args: unknown[]) => unknown> = {
+    'state.get': () => buildState(),
+    'history.list': ([q]) => history.list((q as Parameters<typeof history.list>[0]) ?? {}),
+    'history.get': ([id]) => history.get(id as string),
+    'history.replay': ([id]) => history.replay(id as string),
+    'history.locate': ([id]) => history.locate(id as string),
+    'history.deleteEntry': ([id]) => history.deleteEntry(id as string),
+    'history.clearProject': () => history.clearProject(),
+    'auth.current': ([env]) => auth.current(env as string),
+    'auth.clear': ([env]) => auth.clear(env as string),
+    'auth.isAutoRefreshEnabled': () => auth.isAutoRefreshEnabled(),
+    'auth.setAutoRefreshEnabled': ([on]) => auth.setAutoRefreshEnabled(on as boolean),
+    'requests.listTemplates': () => requests.listTemplates(),
+    'requests.saveOpenAsTemplate': ([name, env]) =>
+      requests.saveOpenAsTemplate(name as string, env as string),
+    'requests.applyTemplate': ([id]) => requests.applyTemplate(id as string),
+    'requests.deleteTemplate': ([id]) => requests.deleteTemplate(id as string),
+    'environments.list': () => environments.list(),
+    'environments.getActiveId': () => environments.getActiveId(),
+    'environments.switch': ([id]) => environments.switch(id as string),
+    'environments.create': ([input]) => environments.create(input as EnvironmentInput),
+    'environments.update': ([id, patch]) =>
+      environments.update(id as string, patch as Partial<EnvironmentInput>),
+    'environments.delete': ([id]) => environments.delete(id as string),
+    'adapter.writeRequest': ([id, data]) =>
+      adapter.writeRequest(id as string, data as RequestSnapshot),
+    'adapter.replay': ([id, body]) => adapter.replay(id as string, body as string | undefined),
+    'adapter.openEndpoint': ([id]) => adapter.openEndpoint(id as string),
+    'adapter.writeAuth': ([a]) => adapter.writeAuth(a as AuthSnapshot),
+    'adapter.clearAuth': () => adapter.clearAuth(),
+  }
+
+  chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+    const msg = message as { type?: string; method?: string; args?: unknown[] } | null
+    if (msg?.type !== RPC_REQUEST || typeof msg.method !== 'string') return false
+    const handler = rpc[msg.method]
+    if (!handler) {
+      sendResponse({ ok: false, error: `Unknown method: ${msg.method}` } satisfies RpcResponse)
+      return false
+    }
+    void (async () => {
+      try {
+        sendResponse({ ok: true, value: await handler(msg.args ?? []) } satisfies RpcResponse)
+      } catch (cause) {
+        sendResponse({
+          ok: false,
+          error: cause instanceof Error ? cause.message : String(cause),
+        } satisfies RpcResponse)
+      }
+    })()
+    return true
+  })
+
+  // Forward selected bus events to the panel (best-effort; ignored if closed).
+  for (const name of FORWARDED_EVENTS) {
+    ;(bus.subscribe as (n: string, h: (p: unknown) => void) => void)(name, (payload) => {
+      void chrome.runtime.sendMessage({ type: EVENT_PUSH, name, payload }).catch(() => {})
     })
   }
 
-  const collapsedResult = await storage.getData<boolean>(COLLAPSED_KEY)
-  const initialCollapsed = collapsedResult.ok && collapsedResult.value === true
-
-  const host = document.createElement('div')
-  host.id = CONTAINER_ID
-  document.body.appendChild(host)
-  const shadow = host.attachShadow({ mode: 'open' })
-
-  const style = document.createElement('style')
-  style.textContent = shadowCss
-  shadow.appendChild(style)
-
-  const mountPoint = document.createElement('div')
-  shadow.appendChild(mountPoint)
-
-  const theme = new ThemeManager({ storage, root: mountPoint, bus })
-  await theme.init()
-
-  createRoot(mountPoint).render(
-    <StrictMode>
-      <App
-        project={meta}
-        theme={theme}
-        bus={bus}
-        storage={storage}
-        initialCollapsed={initialCollapsed}
-        authService={authService}
-        requestService={requestService}
-        environmentService={environmentService}
-        historyService={historyService}
-        fakeDataService={fakeDataService}
-        productivityService={productivityService}
-        settingsService={settingsService}
-        importExportService={importExportService}
-        environmentId={activeEnvId}
-      />
-    </StrictMode>,
-  )
+  pushState() // initial mirror for any already-open panel
 }
 
 void boot()
