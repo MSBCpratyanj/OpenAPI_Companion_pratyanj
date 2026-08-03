@@ -131,11 +131,34 @@ Users shouldn't have to hunt for the toolbar icon, so alongside it:
 - `minimum_chrome_version` bumped **114 → 116** (programmatic `sidePanel.open()`
   needs 116; the earlier toolbar-click-to-open worked from 114).
 
+### Endpoint search moved OUT of the panel, into the page
+PO feedback: the palette was cramped inside the ~400px panel column. A command
+palette wants to be a wide, top-centered overlay — but the side panel is a
+separate browser page and **cannot draw over the Swagger doc**, so the palette
+had to move to where the doc is:
+- `src/content/palette.tsx` mounts the **unchanged** `CommandPalette` into a
+  Shadow DOM in the page via an imperative handle (`open/close/toggle`), since
+  its triggers live outside React. `Dialog` gained `align="top"` (palettes are
+  top-aligned; detail modals stay centered).
+- Theming: `.dark` is toggled on the **inner mount node**, not the shadow host —
+  a class selector can't match the host from inside the shadow tree. A
+  `chrome.storage.onChanged` hook re-reads the preference when the panel changes
+  it (the bus doesn't cross contexts; storage does).
+- Triggers: ⌘K on the page (capture phase, so Swagger's inputs can't swallow it)
+  and the panel's search button → `palette.open` RPC → same overlay. The panel no
+  longer renders a palette or holds a ProductivityService.
+- **Lazy-loaded:** the palette is the only in-page code needing React, so it's a
+  dynamic `import()`. Verified in the build that the content chunk references
+  React only inside `__vite__mapDeps` (the dynamic-import dep list) — so browsing
+  any non-Swagger page no longer pays ~170 kB of React up front.
+
 ### ⚠️ Needs real-browser verification
 Reload the unpacked extension → open a Swagger tab → click the toolbar icon: the
 native panel shows every tab (Dashboard, Auth, Requests, Environments, History,
 Fake Data, Settings) and ⌘K endpoint search — all interactive over the bridge.
 Confirm nothing renders *inside* the Swagger page anymore, **except** the small
-floating launcher button (bottom-right, showing the app icon). Verify the
-launcher and the `⌘⇧O` shortcut both **toggle** the panel (open when closed,
-close when open).
+floating launcher button (bottom-right, showing the app icon) and the ⌘K palette
+overlay. Verify the launcher and the `⌘⇧O` shortcut both **toggle** the panel
+(open when closed, close when open), and that **⌘K** opens a wide, top-centered
+search overlay over the doc — in the right theme — from both the page and the
+panel's search button.
