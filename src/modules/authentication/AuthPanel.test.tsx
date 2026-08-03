@@ -29,6 +29,22 @@ describe('AuthPanel', () => {
     expect(await screen.findByText('Not authorized')).toBeInTheDocument()
   })
 
+  it('copies the real token even while the display is masked', async () => {
+    let copied: string | null = null
+    ;(document as unknown as { execCommand: () => boolean }).execCommand = () => {
+      copied = (document.querySelector('textarea') as HTMLTextAreaElement | null)?.value ?? null
+      return true
+    }
+    const service = mockService({ current: vi.fn(async () => ok(authorized)) })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy token' }))
+    // Masked on screen, but the clipboard gets the usable credential.
+    expect(screen.getByLabelText('Stored credential').textContent).not.toBe('abcdefgh_SECRET_1234')
+    expect(copied).toBe('abcdefgh_SECRET_1234')
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
+  })
+
   it('shows a masked credential and its type when authorized', async () => {
     const service = mockService({ current: vi.fn(async () => ok(authorized)) })
     render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)

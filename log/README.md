@@ -23,7 +23,7 @@
 | [Sprint 14 — Hardening (Part A)](./12_SPRINT-14_HARDENING.md) | EC sweep + fixes, Swagger 3/4/5 matrix, perf targets, a11y focus, security review | 🟡 Part B manual | 317 unit · 2 E2E |
 | [Feedback Round 2](./13_FEEDBACK-ROUND-2.md) | Full API paths, History ⋮ menu (+Locate), wider sidebar/palette | 🟢 Done | 324 unit · 2 E2E |
 | [Auto Token Refresh](./14_AUTO-TOKEN-REFRESH.md) | Opt-in toggle (Auth tab) + 401/403 trigger; refreshes via saved login | 🟢 Done | 334 unit · 2 E2E |
-| [Native Side Panel](./15_SIDE-PANEL-PHASE-1.md) | chrome.sidePanel hosts the whole UI; headless-agent content script (RPC + state + event bridge); injected sidebar removed; opens via toolbar / ⌘⇧O shortcut / in-page launcher; ⌘K endpoint search renders in the page (top-centered); live Home dashboard | 🟢 P2 done | 356 unit · 2 E2E |
+| [Native Side Panel](./15_SIDE-PANEL-PHASE-1.md) | chrome.sidePanel hosts the whole UI; headless-agent content script (RPC + state + event bridge); injected sidebar removed; opens via toolbar / ⌘⇧O shortcut / in-page launcher; ⌘K endpoint search renders in the page (top-centered); live Home dashboard | 🟢 P2 done | 361 unit · 2 E2E |
 
 **Current milestone:** M8 — Settings (**feature-complete MVP**). All 7 modules are in: Auth, Requests, Environments, History, Fake Data, Productivity, Settings. Data is portable (versioned export/import with validation + sanitization) and manageable (per-project/all clear, usage metrics). Remaining work is non-feature: Sprint 14 hardening (edge cases, perf, a11y, security, cross-browser), then Beta (S15) and v1.0.0 (S16).
 
@@ -31,7 +31,7 @@
 
 | Metric | Value |
 |---|---|
-| Automated tests | **356 unit + 2 E2E**, all passing |
+| Automated tests | **361 unit + 2 E2E**, all passing |
 | Overall coverage | **~85%** (feature/core modules 90–100%; target ≥80% per DD-034) |
 | Production-dependency vulnerabilities | **0** |
 | Build | Valid MV3 unpacked extension (`dist/`) |

@@ -5,6 +5,7 @@ import { useEventBus } from '@/hooks'
 import {
   Badge,
   Button,
+  CopyButton,
   EmptyState,
   IconButton,
   Spinner,
@@ -110,6 +111,8 @@ export function AuthPanel({ service, bus, environmentId }: AuthPanelProps) {
             >
               {revealed ? <HideIcon /> : <RevealIcon />}
             </IconButton>
+            {/* Copies the real token, not the masked display value. */}
+            <CopyButton text={record.token} label="Copy token" iconOnly />
           </div>
 
           {status === 'expired' ? (
