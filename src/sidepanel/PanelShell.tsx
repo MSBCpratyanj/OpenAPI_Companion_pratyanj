@@ -18,6 +18,7 @@ import type { EnvironmentPanelService } from '@/modules/environment'
 import type { HistoryPanelService } from '@/modules/history'
 import type { FakeDataPanelService } from '@/modules/fake-data'
 import type { SettingsApi, ImportExportApi } from '@/modules/settings'
+import type { DocStats } from '@/sidebar/Dashboard'
 import { PanelOutlet } from '@/sidebar/PanelOutlet'
 import { TABS, DEFAULT_TAB } from '@/sidebar/tabs'
 
@@ -46,6 +47,8 @@ export interface PanelShellProps {
   fakeDataService: FakeDataPanelService
   settingsService: SettingsApi
   importExportService: ImportExportApi
+  /** Adapter reads for the dashboard's spec summary (version / endpoint count). */
+  swagger?: DocStats
 }
 
 /**
@@ -119,6 +122,9 @@ export function PanelShell({
           importExportService={services.importExportService}
           theme={theme}
           environmentId={activeEnv}
+          onOpenPalette={onOpenPalette}
+          onNavigate={setActiveTab}
+          swagger={services.swagger}
         />
       </div>
 

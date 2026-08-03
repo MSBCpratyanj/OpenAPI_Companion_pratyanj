@@ -12,7 +12,8 @@ import {
   RevealIcon,
   HideIcon,
 } from '@/components'
-import type { AuthRecord, AuthStatus } from './types'
+import type { AuthRecord } from './types'
+import { authStatusOf } from './status'
 
 /** Just the surface AuthPanel needs from AuthenticationService (eases testing). */
 export interface AuthPanelService {
@@ -26,12 +27,6 @@ interface AuthPanelProps {
   service: AuthPanelService
   bus: EventBus
   environmentId: string
-}
-
-function statusOf(record: AuthRecord | null): AuthStatus {
-  if (!record) return 'none'
-  if (record.expiresAt != null && record.expiresAt <= Date.now()) return 'expired'
-  return 'authorized'
 }
 
 function mask(token: string): string {
@@ -82,7 +77,7 @@ export function AuthPanel({ service, bus, environmentId }: AuthPanelProps) {
     )
   }
 
-  const status = statusOf(record)
+  const status = authStatusOf(record)
 
   return (
     <div className="flex flex-col gap-3 p-4">

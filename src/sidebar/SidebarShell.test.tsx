@@ -59,7 +59,9 @@ describe('SidebarShell', () => {
     expect(await screen.findByRole('button', { name: /Theme: light/ })).toBeInTheDocument()
   })
 
-  it('shows project details on the dashboard when identified', async () => {
+  // Legacy injected-sidebar shell: it wires no panel services, so Home renders
+  // the fallback. The rich dashboard (see Dashboard.tsx) needs the read services.
+  it('shows the project on the dashboard fallback when identified', async () => {
     const { storage, bus, theme } = await setup()
     const project = {
       id: 'project_abc12345',
@@ -72,6 +74,6 @@ describe('SidebarShell', () => {
     }
     render(<SidebarShell project={project} theme={theme} bus={bus} storage={storage} />)
     expect(screen.getByText('localhost:8000')).toBeInTheDocument()
-    expect(screen.getByText('project_abc12345')).toBeInTheDocument()
+    expect(screen.getByText('Connecting to the page…')).toBeInTheDocument()
   })
 })

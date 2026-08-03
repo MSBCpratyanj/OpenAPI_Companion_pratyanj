@@ -115,6 +115,7 @@ async function render(root: Root): Promise<void> {
         environmentService={createRemoteEnvironmentService()}
         historyService={createRemoteHistoryService()}
         fakeDataService={new FakeDataService({ adapter, storage, projectId: ctx.projectId, bus })}
+        swagger={adapter}
         settingsService={new SettingsService({ storage, bus })}
         importExportService={new ImportExportService({ storage, bus })}
       />

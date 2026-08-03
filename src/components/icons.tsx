@@ -26,6 +26,7 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   Clock,
+  Download,
   Sparkles,
   RefreshCw,
   Star,
@@ -81,6 +82,7 @@ export const CopiedIcon = make(Check)
 export const RequestIcon = make(ArrowUpRight)
 export const ResponseIcon = make(ArrowDownLeft)
 export const ClockIcon = make(Clock)
+export const DownloadIcon = make(Download)
 export const GenerateIcon = make(Sparkles)
 export const RegenerateIcon = make(RefreshCw)
 export const FavoriteIcon = make(Star)

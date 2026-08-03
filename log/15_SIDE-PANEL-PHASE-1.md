@@ -152,6 +152,30 @@ had to move to where the doc is:
   React only inside `__vite__mapDeps` (the dynamic-import dep list) — so browsing
   any non-Swagger page no longer pays ~170 kB of React up front.
 
+### Home tab is a real dashboard now
+PO: *"this home page look too much empty"* — correct, and it was worse than empty:
+the Dashboard was untouched Sprint-3 scaffolding still promising that modules
+*"light up the tabs above as they ship"* (all 7 had shipped), and `PanelOutlet`
+still carried a dead `PLACEHOLDERS` map advertising "Arrives in Sprint 4".
+
+`src/sidebar/Dashboard.tsx` (extracted from `PanelOutlet`, now its own module):
+- **Project + spec** — name, origin, Swagger version badge, endpoint count, and
+  an inline **environment switcher** (no trip to the Env tab).
+- **Auth card** — Active / Expired / Not signed in, credential type, a live
+  expiry countdown, and the auto-refresh state.
+- **Recent** — last 5 calls with method + status badges; click locates the
+  endpoint in the doc; "View all" jumps to History.
+- **Totals** — calls, failures (≥400), saved templates.
+- **Quick actions** — Search (⌘K → the in-page palette), Templates, Fake data,
+  and a one-click Backup.
+
+It reads through the **same panel services** as the other tabs (already passed to
+`PanelOutlet`, previously ignored), so it can't drift from them, and refreshes on
+HISTORY_RECORDED / AUTH_* / TEMPLATE_SAVED / ENVIRONMENT_CHANGED. `statusOf` moved
+out of `AuthPanel` into `authentication/status.ts` so the panel and the dashboard
+can't disagree about what "authorized" means. `PanelOutlet`'s placeholder copy is
+now an honest "not connected to the page yet" fallback.
+
 ### ⚠️ Needs real-browser verification
 Reload the unpacked extension → open a Swagger tab → click the toolbar icon: the
 native panel shows every tab (Dashboard, Auth, Requests, Environments, History,

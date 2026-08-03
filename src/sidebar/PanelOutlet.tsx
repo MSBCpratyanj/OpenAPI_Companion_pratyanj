@@ -1,4 +1,4 @@
-import { Badge, EmptyState, SearchIcon, PlaceholderIcon } from '@/components'
+import { EmptyState, SearchIcon, PlaceholderIcon } from '@/components'
 import type { ProjectMeta } from '@/core/project'
 import type { EventBus } from '@/core/events'
 import type { ThemeManager } from '@/services'
@@ -8,52 +8,27 @@ import { EnvironmentsPanel, type EnvironmentPanelService } from '@/modules/envir
 import { HistoryPanel, type HistoryPanelService } from '@/modules/history'
 import { FakeDataPanel, type FakeDataPanelService } from '@/modules/fake-data'
 import { SettingsPanel, type SettingsApi, type ImportExportApi } from '@/modules/settings'
+import { Dashboard, type DocStats } from './Dashboard'
 
-/** Placeholder copy per not-yet-built module (each names its sprint). */
+/**
+ * Fallback copy when a panel's service isn't wired (e.g. the page agent isn't
+ * reachable). Every module has shipped, so this is a connection problem now.
+ */
 const PLACEHOLDERS: Record<string, { title: string; message: string }> = {
-  auth: {
-    title: 'Authentication',
-    message: 'Persist & auto-restore your Swagger login across refreshes. Arrives in Sprint 4.',
-  },
-  requests: {
-    title: 'Requests & Templates',
-    message: 'Auto-save and restore request bodies, params, and headers. Arrives in Sprint 6.',
-  },
-  environments: {
-    title: 'Environments',
-    message: 'Switch between Local/QA/Staging with one click. Arrives in Sprint 8.',
-  },
-  history: {
-    title: 'API History',
-    message: 'Every executed request, searchable and replayable. Arrives in Sprint 9.',
-  },
+  auth: { title: 'Authentication', message: 'Not connected to the page yet.' },
+  requests: { title: 'Requests & Templates', message: 'Not connected to the page yet.' },
+  environments: { title: 'Environments', message: 'Not connected to the page yet.' },
+  history: { title: 'API History', message: 'Not connected to the page yet.' },
 }
 
-function Dashboard({ project }: { project: ProjectMeta | null }) {
-  if (!project) {
-    return (
-      <EmptyState
-        icon={<SearchIcon className="h-8 w-8 text-muted" />}
-        title="No project detected"
-        message="Open an OpenAPI (Swagger UI) page to begin."
-      />
-    )
-  }
+/** Shown when the rich dashboard can't be built (no services / no project). */
+function BasicHome({ project }: { project: ProjectMeta | null }) {
   return (
-    <div className="flex flex-col gap-3 p-4">
-      <div>
-        <div className="text-sm font-semibold text-text">{project.name}</div>
-        <div className="font-mono text-[11px] text-muted">{project.id}</div>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Badge kind="info">{project.docType}</Badge>
-        <Badge kind="neutral">env: {project.lastActiveEnvId}</Badge>
-      </div>
-      <p className="text-xs text-muted">
-        Foundation is in place — feature modules (auth, requests, history…) light up the tabs above
-        as they ship.
-      </p>
-    </div>
+    <EmptyState
+      icon={<SearchIcon className="h-8 w-8 text-muted" />}
+      title={project ? project.name : 'No project detected'}
+      message={project ? 'Connecting to the page…' : 'Open an OpenAPI (Swagger UI) page to begin.'}
+    />
   )
 }
 
@@ -70,6 +45,12 @@ interface PanelOutletProps {
   importExportService?: ImportExportApi
   theme?: ThemeManager
   environmentId?: string
+  /** Opens the in-page command palette; enables the dashboard's Search action. */
+  onOpenPalette?: () => void
+  /** Tab switcher, so the dashboard can link into the other panels. */
+  onNavigate?: (tabId: string) => void
+  /** Adapter reads for the dashboard's spec summary (version / endpoint count). */
+  swagger?: DocStats
 }
 
 export function PanelOutlet({
@@ -85,8 +66,41 @@ export function PanelOutlet({
   importExportService,
   theme,
   environmentId,
+  onOpenPalette,
+  onNavigate,
+  swagger,
 }: PanelOutletProps) {
-  if (activeTab === 'dashboard') return <Dashboard project={project} />
+  if (activeTab === 'dashboard') {
+    // The rich dashboard needs the read services; fall back if they're absent.
+    if (
+      bus &&
+      environmentId &&
+      authService &&
+      environmentService &&
+      historyService &&
+      requestService &&
+      importExportService &&
+      onOpenPalette &&
+      onNavigate
+    ) {
+      return (
+        <Dashboard
+          project={project}
+          bus={bus}
+          environmentId={environmentId}
+          authService={authService}
+          environmentService={environmentService}
+          historyService={historyService}
+          requestService={requestService}
+          importExportService={importExportService}
+          onOpenPalette={onOpenPalette}
+          onNavigate={onNavigate}
+          swagger={swagger}
+        />
+      )
+    }
+    return <BasicHome project={project} />
+  }
 
   if (activeTab === 'auth' && authService && bus && environmentId) {
     return <AuthPanel service={authService} bus={bus} environmentId={environmentId} />
@@ -121,7 +135,7 @@ export function PanelOutlet({
   }
 
   const placeholder = PLACEHOLDERS[activeTab]
-  if (!placeholder) return <Dashboard project={project} />
+  if (!placeholder) return <BasicHome project={project} />
   return (
     <EmptyState
       icon={<PlaceholderIcon className="h-8 w-8 text-muted" />}
