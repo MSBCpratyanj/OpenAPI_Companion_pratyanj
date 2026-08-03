@@ -207,6 +207,14 @@ export function createRemoteEnvironmentService(): EnvironmentPanelService {
   }
 }
 
+/**
+ * Ask the page to open its command palette. Endpoint search lives in the page
+ * (top-centered over the doc) because the panel can't draw outside its own column.
+ */
+export function openPagePalette(): void {
+  void rpcResult('palette.open')
+}
+
 export function createRemoteHistoryService(): HistoryPanelService {
   return {
     list: (query) => rpcResult('history.list', query),

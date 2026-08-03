@@ -143,7 +143,8 @@ export function CommandPalette({ service, onClose }: CommandPaletteProps) {
     ) : null
 
   return (
-    <Dialog title="Search endpoints" onClose={onClose} size="xl">
+    // Top-aligned: this is a command palette, not a detail modal.
+    <Dialog title="Search endpoints" onClose={onClose} size="xl" align="top">
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2 rounded-md border border-border bg-surface px-2">
           <SearchIcon className="h-4 w-4 text-muted" />

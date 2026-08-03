@@ -4,17 +4,25 @@ import { CloseIcon } from './icons'
 
 /** Panel max-width. `lg` (default) for detail/confirm; `xl` for endpoint search. */
 export type DialogSize = 'lg' | 'xl'
+/** Vertical placement: `center` (default) for detail/confirm, `top` for palettes. */
+export type DialogAlign = 'center' | 'top'
 
 interface DialogProps {
   title: string
   onClose: () => void
   children: ReactNode
   size?: DialogSize
+  align?: DialogAlign
 }
 
 const SIZE_CLASS: Record<DialogSize, string> = {
   lg: 'max-w-lg',
   xl: 'max-w-2xl',
+}
+
+const ALIGN_CLASS: Record<DialogAlign, string> = {
+  center: 'items-center',
+  top: 'items-start pt-[8vh]',
 }
 
 /**
@@ -26,7 +34,7 @@ const SIZE_CLASS: Record<DialogSize, string> = {
  * (unless a child — e.g. the palette's autoFocus input — already claimed it);
  * on close, focus returns to the element that opened it.
  */
-export function Dialog({ title, onClose, children, size = 'lg' }: DialogProps) {
+export function Dialog({ title, onClose, children, size = 'lg', align = 'center' }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -56,7 +64,7 @@ export function Dialog({ title, onClose, children, size = 'lg' }: DialogProps) {
       aria-modal="true"
       aria-label={title}
       onClick={onClose}
-      className="fixed inset-0 z-[2147483647] flex items-center justify-center bg-black/50 p-4"
+      className={`fixed inset-0 z-[2147483647] flex ${ALIGN_CLASS[align]} justify-center bg-black/50 p-4`}
     >
       <div
         ref={panelRef}

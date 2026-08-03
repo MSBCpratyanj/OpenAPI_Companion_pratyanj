@@ -13,11 +13,11 @@ import { EventBus } from '@/core/events'
 import { ThemeManager } from '@/services'
 import type { ProjectMeta } from '@/core/project'
 import { FakeDataService } from '@/modules/fake-data'
-import { ProductivityService } from '@/modules/productivity'
 import { SettingsService, ImportExportService } from '@/modules/settings'
 import {
   startBridge,
   fetchState,
+  openPagePalette,
   RemoteSwaggerAdapter,
   createRemoteAuthService,
   createRemoteRequestService,
@@ -88,15 +88,9 @@ async function render(root: Root): Promise<void> {
   const theme = new ThemeManager({ storage, root: document.documentElement, bus })
   await theme.init()
 
+  // Endpoint search is NOT built here: it runs in the page (see content/palette),
+  // so it can be a proper top-centered overlay instead of a 400px column.
   const adapter = new RemoteSwaggerAdapter()
-  const productivity = new ProductivityService({
-    adapter,
-    storage,
-    projectId: ctx.projectId,
-    bus,
-    baseUrl: ctx.pageOrigin,
-  })
-  await productivity.init()
 
   const project: ProjectMeta = {
     id: ctx.projectId,
@@ -115,12 +109,12 @@ async function render(root: Root): Promise<void> {
         theme={theme}
         bus={bus}
         environmentId={ctx.environmentId}
+        onOpenPalette={openPagePalette}
         authService={createRemoteAuthService()}
         requestService={createRemoteRequestService()}
         environmentService={createRemoteEnvironmentService()}
         historyService={createRemoteHistoryService()}
         fakeDataService={new FakeDataService({ adapter, storage, projectId: ctx.projectId, bus })}
-        productivityService={productivity}
         settingsService={new SettingsService({ storage, bus })}
         importExportService={new ImportExportService({ storage, bus })}
       />

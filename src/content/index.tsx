@@ -9,18 +9,21 @@
  * service/adapter calls, a pushed read-state mirror, and forwarded bus events.
  * It never renders UI into the page.
  */
+import { ok } from '@/types'
 import { bus } from '@/core/events'
 import { StorageService, chromeLocalArea } from '@/core/storage'
 import { ProjectService, type ProjectMeta } from '@/core/project'
 import { docIdentityUrl } from '@/utils'
 import { SwaggerUiAdapter, type AuthSnapshot, type RequestSnapshot } from '@/adapters'
-import { TokenRefreshService } from '@/services'
+import { ThemeManager, TokenRefreshService } from '@/services'
 import { AuthenticationService } from '@/modules/authentication'
 import { RequestService } from '@/modules/request'
 import { EnvironmentService, type EnvironmentInput } from '@/modules/environment'
 import { HistoryService } from '@/modules/history'
+import { ProductivityService } from '@/modules/productivity'
 import { SwaggerBridge } from './swagger-bridge'
 import { mountLauncher } from './launcher'
+import type { PaletteHandle } from './palette' // type-only: the module loads lazily
 import {
   RPC_REQUEST,
   STATE_PUSH,
@@ -67,6 +70,50 @@ async function boot(): Promise<void> {
   console.info(`${LOG} agent ready — project "${meta.name}" (${meta.id}). Open the side panel.`)
 
   mountLauncher() // floating button to open the panel from the page
+
+  // Endpoint search runs IN THE PAGE (top-centered overlay) — the panel is too
+  // narrow for it and can't draw over the doc. Triggered by ⌘K here, or by the
+  // panel's search button over RPC.
+  const productivity = new ProductivityService({
+    adapter,
+    storage,
+    projectId: meta.id,
+    bus,
+    baseUrl: location.origin,
+  })
+  await productivity.init()
+
+  // The palette is the only thing in the page that needs React, so it's loaded on
+  // FIRST USE — a static import would make every page in the browser pay ~170 kB
+  // of React up front just in case the user hits ⌘K.
+  let palette: PaletteHandle | null = null
+  const withPalette = async (): Promise<PaletteHandle> => {
+    if (palette) return palette
+    const { mountPalette } = await import('./palette')
+    palette = mountPalette(productivity)
+    // Theme it from the shared preference, and re-read when the panel changes it
+    // (separate contexts, so the bus doesn't cross the boundary — storage does).
+    const paletteTheme = new ThemeManager({ storage, root: palette.themeRoot, bus })
+    await paletteTheme.init()
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && Object.keys(changes).some((k) => k.includes('theme'))) {
+        void paletteTheme.init()
+      }
+    })
+    return palette
+  }
+
+  // Capture phase so Swagger's own inputs can't swallow the shortcut.
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        void withPalette().then((p) => p.toggle())
+      }
+    },
+    true,
+  )
 
   const auth = new AuthenticationService({ storage, adapter, projectId: meta.id, bus })
   const requests = new RequestService({ storage, adapter, projectId: meta.id, bus })
@@ -153,6 +200,11 @@ async function boot(): Promise<void> {
   // RPC dispatch: "<service|adapter>.<method>" → the real call.
   const rpc: Record<string, (args: unknown[]) => unknown> = {
     'state.get': () => buildState(),
+    // Panel's search button → open the in-page palette (top-centered on the doc).
+    'palette.open': () => {
+      void withPalette().then((p) => p.open())
+      return ok(undefined)
+    },
     'history.list': ([q]) => history.list((q as Parameters<typeof history.list>[0]) ?? {}),
     'history.get': ([id]) => history.get(id as string),
     'history.replay': ([id]) => history.replay(id as string),

@@ -62,14 +62,6 @@ function services() {
       generateAll: okAsync({ endpointId: '', fieldCount: 0 }),
       regenerateField: okAsync({ endpointId: '', fieldCount: 0 }),
     } as any,
-    productivityService: {
-      search: vi.fn(() => []),
-      getFavorites: vi.fn(() => []),
-      getRecents: vi.fn(() => []),
-      toggleFavorite: okAsync(false),
-      open: okAsync(),
-      generateCode: vi.fn(() => ok('')),
-    } as any,
     settingsService: {
       getPreferences: vi.fn(async () => ({ autoBackup: false, historyLimit: 1000 })),
       setPreference: okAsync(),
@@ -97,15 +89,18 @@ async function setup() {
   })
   await theme.init()
   const bus = new EventBus()
+  const onOpenPalette = vi.fn()
   render(
     <PanelShell
       project={project}
       theme={theme}
       bus={bus}
       environmentId="default"
+      onOpenPalette={onOpenPalette}
       {...services()}
     />,
   )
+  return { onOpenPalette }
 }
 
 describe('PanelShell (native side panel)', () => {
@@ -122,9 +117,18 @@ describe('PanelShell (native side panel)', () => {
     expect(await screen.findByLabelText('Search history')).toBeInTheDocument()
   })
 
-  it('opens the ⌘K endpoint search palette', async () => {
-    await setup()
+  // The palette renders in the PAGE (top-centered over the doc), not in this
+  // narrow column — so the panel only asks for it, and never renders it itself.
+  it('delegates the search button to the in-page palette', async () => {
+    const { onOpenPalette } = await setup()
     fireEvent.click(screen.getByRole('button', { name: 'Search endpoints (⌘K)' }))
-    expect(await screen.findByRole('dialog', { name: 'Search endpoints' })).toBeInTheDocument()
+    expect(onOpenPalette).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog', { name: 'Search endpoints' })).not.toBeInTheDocument()
+  })
+
+  it('delegates ⌘K to the in-page palette', async () => {
+    const { onOpenPalette } = await setup()
+    fireEvent.keyDown(window, { key: 'k', metaKey: true })
+    expect(onOpenPalette).toHaveBeenCalledTimes(1)
   })
 })

@@ -17,7 +17,6 @@ import type { RequestPanelService } from '@/modules/request'
 import type { EnvironmentPanelService } from '@/modules/environment'
 import type { HistoryPanelService } from '@/modules/history'
 import type { FakeDataPanelService } from '@/modules/fake-data'
-import { CommandPalette, type ProductivityPanelService } from '@/modules/productivity'
 import type { SettingsApi, ImportExportApi } from '@/modules/settings'
 import { PanelOutlet } from '@/sidebar/PanelOutlet'
 import { TABS, DEFAULT_TAB } from '@/sidebar/tabs'
@@ -38,12 +37,13 @@ export interface PanelShellProps {
   theme: ThemeManager
   bus: EventBus
   environmentId: string
+  /** Opens the palette in the PAGE (see `openPagePalette`) — not in this column. */
+  onOpenPalette: () => void
   authService: AuthPanelService
   requestService: RequestPanelService
   environmentService: EnvironmentPanelService
   historyService: HistoryPanelService
   fakeDataService: FakeDataPanelService
-  productivityService: ProductivityPanelService
   settingsService: SettingsApi
   importExportService: ImportExportApi
 }
@@ -53,78 +53,76 @@ export interface PanelShellProps {
  * injected sidebar (reuses `PanelOutlet`), minus the floating card / collapse
  * chrome the browser's panel already provides.
  */
-export function PanelShell({ project, theme, bus, environmentId, ...services }: PanelShellProps) {
+export function PanelShell({
+  project,
+  theme,
+  bus,
+  environmentId,
+  onOpenPalette,
+  ...services
+}: PanelShellProps) {
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
   const [activeEnv, setActiveEnv] = useState(environmentId)
-  const [paletteOpen, setPaletteOpen] = useState(false)
   const { preference } = useTheme(theme)
 
   useEventBus(bus, 'ENVIRONMENT_CHANGED', (payload) => setActiveEnv(payload.environmentId))
 
+  // ⌘K works from the panel too, but the palette itself opens in the page.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setPaletteOpen(true)
+        onOpenPalette()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [onOpenPalette])
 
   const cycleTheme = () => void theme.setPreference(NEXT_PREFERENCE[theme.getPreference()])
   const PreferenceIcon = PREFERENCE_ICON[preference]
 
   return (
-    <>
-      <div className="flex min-h-screen flex-col bg-bg text-text">
-        <header className="flex items-center justify-between border-b border-border px-3 py-2">
-          <strong className="text-sm">OpenAPI Companion</strong>
-          <div className="flex items-center gap-1">
-            <IconButton label="Search endpoints (⌘K)" onClick={() => setPaletteOpen(true)}>
-              <SearchIcon />
-            </IconButton>
-            <IconButton label={`Theme: ${preference}. Click to change.`} onClick={cycleTheme}>
-              <PreferenceIcon className="h-4 w-4" />
-            </IconButton>
-          </div>
-        </header>
-
-        <nav className="border-b border-border px-2 py-2">
-          <Tabs tabs={TABS} activeId={activeTab} onChange={setActiveTab} />
-        </nav>
-
-        <div
-          role="tabpanel"
-          id={`panel-${activeTab}`}
-          aria-labelledby={`tab-${activeTab}`}
-          className="flex-1 overflow-auto"
-        >
-          <PanelOutlet
-            activeTab={activeTab}
-            project={project}
-            bus={bus}
-            authService={services.authService}
-            requestService={services.requestService}
-            environmentService={services.environmentService}
-            historyService={services.historyService}
-            fakeDataService={services.fakeDataService}
-            settingsService={services.settingsService}
-            importExportService={services.importExportService}
-            theme={theme}
-            environmentId={activeEnv}
-          />
+    <div className="flex min-h-screen flex-col bg-bg text-text">
+      <header className="flex items-center justify-between border-b border-border px-3 py-2">
+        <strong className="text-sm">OpenAPI Companion</strong>
+        <div className="flex items-center gap-1">
+          <IconButton label="Search endpoints (⌘K)" onClick={onOpenPalette}>
+            <SearchIcon />
+          </IconButton>
+          <IconButton label={`Theme: ${preference}. Click to change.`} onClick={cycleTheme}>
+            <PreferenceIcon className="h-4 w-4" />
+          </IconButton>
         </div>
+      </header>
 
-        <ToastLayer bus={bus} />
+      <nav className="border-b border-border px-2 py-2">
+        <Tabs tabs={TABS} activeId={activeTab} onChange={setActiveTab} />
+      </nav>
+
+      <div
+        role="tabpanel"
+        id={`panel-${activeTab}`}
+        aria-labelledby={`tab-${activeTab}`}
+        className="flex-1 overflow-auto"
+      >
+        <PanelOutlet
+          activeTab={activeTab}
+          project={project}
+          bus={bus}
+          authService={services.authService}
+          requestService={services.requestService}
+          environmentService={services.environmentService}
+          historyService={services.historyService}
+          fakeDataService={services.fakeDataService}
+          settingsService={services.settingsService}
+          importExportService={services.importExportService}
+          theme={theme}
+          environmentId={activeEnv}
+        />
       </div>
 
-      {paletteOpen ? (
-        <CommandPalette
-          service={services.productivityService}
-          onClose={() => setPaletteOpen(false)}
-        />
-      ) : null}
-    </>
+      <ToastLayer bus={bus} />
+    </div>
   )
 }
