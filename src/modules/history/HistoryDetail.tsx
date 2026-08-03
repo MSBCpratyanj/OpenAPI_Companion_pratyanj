@@ -34,16 +34,47 @@ function formatTime(ts: number): string {
   }
 }
 
-function Panel({ body }: { body: string }) {
+function Panel({
+  body,
+  wrap,
+  onToggleWrap,
+}: {
+  body: string
+  wrap: boolean
+  onToggleWrap: () => void
+}) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-muted">
           {body ? `${body.length} characters` : 'Empty'}
         </span>
-        {body ? <CopyButton text={body} /> : null}
+        {body ? (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-pressed={wrap}
+              onClick={onToggleWrap}
+              title="Wrap long lines instead of scrolling sideways"
+              className={
+                wrap
+                  ? 'rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase text-white'
+                  : 'rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase text-muted hover:bg-surface hover:text-text'
+              }
+            >
+              wrap
+            </button>
+            <CopyButton text={body} />
+          </div>
+        ) : null}
       </div>
-      <pre className="max-h-[48vh] overflow-auto rounded-md border border-border bg-surface p-3 font-mono text-[11px] leading-relaxed text-text">
+      {/* Grows with the payload (up to most of the panel) rather than sitting in
+          a short fixed box, so big JSON gets room while a 2-line body stays small. */}
+      <pre
+        className={`max-h-[62vh] min-h-[14vh] overflow-auto rounded-md border border-border bg-surface p-3 font-mono text-[11px] leading-relaxed text-text ${
+          wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
+        }`}
+      >
         {body || '(empty)'}
       </pre>
     </div>
@@ -57,8 +88,12 @@ function Panel({ body }: { body: string }) {
  */
 export function HistoryDetail({ record }: { record: HistoryRecord }) {
   const [tab, setTab] = useState('request')
+  // Wrap by default: the panel is narrow, and long tokens/URLs would otherwise
+  // need sideways scrolling. Kept at this level so it survives a tab switch.
+  const [wrap, setWrap] = useState(true)
   const request = prettify(record.requestBody)
   const response = prettify(record.responseBody)
+  const toggleWrap = () => setWrap((v) => !v)
 
   return (
     <div className="flex flex-col gap-3">
@@ -82,7 +117,11 @@ export function HistoryDetail({ record }: { record: HistoryRecord }) {
 
       <Tabs tabs={TABS} activeId={tab} onChange={setTab} />
 
-      {tab === 'request' ? <Panel body={request} /> : <Panel body={response} />}
+      {tab === 'request' ? (
+        <Panel body={request} wrap={wrap} onToggleWrap={toggleWrap} />
+      ) : (
+        <Panel body={response} wrap={wrap} onToggleWrap={toggleWrap} />
+      )}
     </div>
   )
 }

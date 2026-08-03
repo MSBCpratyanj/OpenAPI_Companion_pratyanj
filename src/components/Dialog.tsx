@@ -2,8 +2,12 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import { IconButton } from './IconButton'
 import { CloseIcon } from './icons'
 
-/** Panel max-width. `lg` (default) for detail/confirm; `xl` for endpoint search. */
-export type DialogSize = 'lg' | 'xl'
+/**
+ * Panel max-width: `lg` (default) for confirms, `xl` for endpoint search, `full`
+ * for content that should use every pixel available (e.g. JSON bodies in the
+ * side panel — which the user can widen by dragging the panel edge).
+ */
+export type DialogSize = 'lg' | 'xl' | 'full'
 /** Vertical placement: `center` (default) for detail/confirm, `top` for palettes. */
 export type DialogAlign = 'center' | 'top'
 
@@ -18,6 +22,7 @@ interface DialogProps {
 const SIZE_CLASS: Record<DialogSize, string> = {
   lg: 'max-w-lg',
   xl: 'max-w-2xl',
+  full: 'max-w-none',
 }
 
 const ALIGN_CLASS: Record<DialogAlign, string> = {

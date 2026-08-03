@@ -58,6 +58,28 @@ describe('HistoryPanel', () => {
     )
   })
 
+  it('wraps long body lines by default, and the toggle survives a tab switch', async () => {
+    render(<HistoryPanel service={mockService()} bus={new EventBus()} />)
+    await screen.findByText('/users')
+    fireEvent.click(screen.getByRole('button', { name: 'View post /users details' }))
+    await screen.findByRole('dialog', { name: 'Request detail' })
+
+    const body = () => document.querySelector('pre') as HTMLElement
+    const toggle = () => screen.getByRole('button', { name: 'wrap' })
+
+    // Narrow panel → wrapping on by default, so long tokens stay visible.
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true')
+    expect(body().className).toContain('whitespace-pre-wrap')
+
+    fireEvent.click(toggle())
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false')
+    expect(body().className).not.toContain('whitespace-pre-wrap')
+
+    // Switching tabs keeps the preference (it lives above both panes).
+    fireEvent.click(screen.getByRole('tab', { name: 'Response' }))
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('opens a tabbed detail inspector, switching between request and response', async () => {
     const service = mockService()
     render(<HistoryPanel service={service} bus={new EventBus()} />)

@@ -174,7 +174,7 @@ export function HistoryPanel({ service, bus }: HistoryPanelProps) {
       )}
 
       {detail ? (
-        <Dialog title="Request detail" onClose={() => setDetail(null)}>
+        <Dialog title="Request detail" onClose={() => setDetail(null)} size="full">
           <HistoryDetail record={detail} />
         </Dialog>
       ) : null}
