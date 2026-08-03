@@ -46,6 +46,10 @@ export interface TokenRefreshOptions {
   templates: RefreshTemplateApi
   bus?: EventBus
   now?: () => number
+  /** Feature gate — refresh only runs when this returns true (default: always). */
+  enabled?: () => boolean
+  /** Minimum gap between refresh attempts, to break login-failure loops (ms). */
+  cooldownMs?: number
   /** Poll interval while waiting for the login response (ms). */
   pollMs?: number
   /** Give up waiting for the login response after this long (ms). */
@@ -102,7 +106,12 @@ export class TokenRefreshService {
   private readonly pollMs: number
   private readonly timeoutMs: number
   private readonly schedule: (fn: () => void, ms: number) => unknown
+  private readonly enabled: () => boolean
+  private readonly cooldownMs: number
   private running = false
+  private lastAttempt = 0
+  /** Signatures of already-handled auth-failure responses (dedup across mutations). */
+  private readonly seenFailures = new Set<string>()
 
   constructor(options: TokenRefreshOptions) {
     this.adapter = options.adapter
@@ -110,6 +119,8 @@ export class TokenRefreshService {
     this.templates = options.templates
     this.bus = options.bus
     this.now = options.now ?? (() => Date.now())
+    this.enabled = options.enabled ?? (() => true)
+    this.cooldownMs = options.cooldownMs ?? 15_000
     this.pollMs = options.pollMs ?? 400
     this.timeoutMs = options.timeoutMs ?? 12_000
     this.schedule = options.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms))
@@ -124,22 +135,54 @@ export class TokenRefreshService {
   }
 
   /**
-   * If the stored credential is expired AND a login template exists: run the
-   * login request, wait for its rendered response, extract the token, and apply
-   * + persist it. Resolves true when a fresh token was stored.
+   * On-load / env-switch trigger: refresh only when the stored JWT is expired.
+   * (Opaque tokens have no expiry to read — those are caught by the 401 path.)
    */
-  async refreshIfExpired(environmentId: string): Promise<Result<boolean>> {
+  refreshIfExpired(environmentId: string): Promise<Result<boolean>> {
+    return this.maybeRefresh(environmentId, false)
+  }
+
+  /**
+   * Response-watch trigger: call whenever executed responses change. A NEW
+   * 401/403 is the real-world "token died" signal (works for JWT AND opaque
+   * tokens), so it force-refreshes regardless of any `exp`. Deduped per response
+   * and rate-limited by the cooldown so a failing login can't loop.
+   */
+  noticeResponses(environmentId: string): Promise<Result<boolean>> | undefined {
+    if (!this.enabled()) return undefined
+    for (const res of this.adapter.readExecutedResponses()) {
+      if (res.status !== 401 && res.status !== 403) continue
+      const sig = `${res.endpointId}:${res.status}:${res.responseBody ?? ''}`
+      if (this.seenFailures.has(sig)) continue
+      if (this.seenFailures.size > 50) this.seenFailures.clear()
+      this.seenFailures.add(sig)
+      return this.maybeRefresh(environmentId, true)
+    }
+    return undefined
+  }
+
+  /**
+   * Run the saved login request, read the fresh token from its response, and
+   * apply + persist it. `force` skips the `exp` check (used by the 401 path,
+   * where the server already told us the token is dead). Resolves true when a
+   * fresh token was stored. Guarded by: enabled, not-running, cooldown, a stored
+   * credential, and a recognizable login template.
+   */
+  private async maybeRefresh(environmentId: string, force: boolean): Promise<Result<boolean>> {
+    if (!this.enabled()) return ok(false)
     if (this.running) return ok(false)
+    if (this.now() - this.lastAttempt < this.cooldownMs) return ok(false)
 
     const got = await this.auth.current(environmentId)
     if (!got.ok || !got.value) return ok(false)
     const record = got.value
-    if (record.expiresAt == null || record.expiresAt > this.now()) return ok(false) // still valid
+    if (!force && (record.expiresAt == null || record.expiresAt > this.now())) return ok(false)
 
     const login = await this.findLoginTemplate(environmentId)
     if (!login) return ok(false) // nothing saved to log in with
 
     this.running = true
+    this.lastAttempt = this.now()
     try {
       // Signatures of already-rendered responses, so we only accept a NEW one.
       const before = new Map(

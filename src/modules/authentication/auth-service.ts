@@ -1,5 +1,5 @@
 import { ok, err, type Result, type AppError, type Unsubscribe } from '@/types'
-import { projectKey, type StorageService } from '@/core/storage'
+import { projectKey, settingsKey, type StorageService } from '@/core/storage'
 import type { EventBus } from '@/core/events'
 import type { SwaggerAdapter, AuthSnapshot } from '@/adapters'
 import { decodeJwtExpiryMs, isJwt } from '@/utils'
@@ -19,6 +19,9 @@ const authWriteError = (cause?: unknown): AppError => ({
   recoverable: true,
   cause,
 })
+
+/** Global (cross-project) feature flag for auto token refresh. */
+const AUTO_REFRESH_KEY = settingsKey('auto-refresh-token')
 
 /**
  * Persists authorization entered in Swagger and auto-restores it per project +
@@ -46,6 +49,19 @@ export class AuthenticationService {
 
   private key(environmentId: string): string {
     return projectKey(this.projectId, 'authentication', environmentId)
+  }
+
+  /** Global opt-in for auto token refresh (default off). */
+  async isAutoRefreshEnabled(): Promise<boolean> {
+    const got = await this.storage.getData<boolean>(AUTO_REFRESH_KEY)
+    return got.ok && got.value === true
+  }
+
+  async setAutoRefreshEnabled(enabled: boolean): Promise<Result<void>> {
+    const written = await this.storage.set(AUTO_REFRESH_KEY, enabled, { immediate: true })
+    if (!written.ok) return written
+    this.bus?.publish('SETTINGS_UPDATED', { keys: ['auto-refresh-token'] })
+    return ok(undefined)
   }
 
   async current(environmentId: string): Promise<Result<AuthRecord | null>> {

@@ -61,6 +61,22 @@ describe('AuthenticationService', () => {
     /* fresh per test */
   })
 
+  it('auto-refresh flag defaults off, persists on, and emits SETTINGS_UPDATED', async () => {
+    const { service, bus } = setup()
+    const updated = vi.fn()
+    bus.subscribe('SETTINGS_UPDATED', updated)
+
+    expect(await service.isAutoRefreshEnabled()).toBe(false)
+
+    const r = await service.setAutoRefreshEnabled(true)
+    expect(r.ok).toBe(true)
+    expect(await service.isAutoRefreshEnabled()).toBe(true)
+    expect(updated).toHaveBeenCalledWith({ keys: ['auto-refresh-token'] })
+
+    await service.setAutoRefreshEnabled(false)
+    expect(await service.isAutoRefreshEnabled()).toBe(false)
+  })
+
   it('applyToken writes the token into Swagger AND persists it (token refresh)', async () => {
     const writeAuth = vi.fn((): Result<void> => ok(undefined))
     const { service } = setup(mockAdapter({ writeAuth }))

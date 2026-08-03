@@ -65,12 +65,16 @@ function makeService(opts: {
   auth: RefreshAuthApi
   templates: RefreshTemplateApi
   bus?: EventBus
+  enabled?: () => boolean
+  cooldownMs?: number
 }) {
   return new TokenRefreshService({
     adapter: mockAdapter(opts.responses ?? (() => [])),
     auth: opts.auth,
     templates: opts.templates,
     bus: opts.bus,
+    enabled: opts.enabled,
+    cooldownMs: opts.cooldownMs ?? 0,
     now: () => NOW,
     pollMs: 100,
     timeoutMs: 500,
@@ -244,5 +248,96 @@ describe('TokenRefreshService.refreshIfExpired', () => {
     expect(result).toEqual({ ok: true, value: false })
     expect(auth.applyToken).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' }))
+  })
+
+  it('does nothing when the feature is disabled', async () => {
+    const auth = mockAuth(NOW - 1) // expired
+    const templates = mockTemplates([loginTemplate])
+    const service = makeService({ auth, templates, enabled: () => false })
+    expect(await service.refreshIfExpired('qa')).toEqual({ ok: true, value: false })
+    expect(templates.applyTemplate).not.toHaveBeenCalled()
+  })
+})
+
+const NEW_TOKEN = 'NEW_TOKEN_VALUE_456'
+
+/** Login response that renders only after applyTemplate ran. */
+function loginResponses(executedRef: { done: boolean }, before: ExecutedResponse[] = []) {
+  return (): ExecutedResponse[] =>
+    executedRef.done
+      ? [
+          ...before,
+          {
+            endpointId: 'post /auth/login',
+            method: 'post',
+            endpoint: '/auth/login',
+            status: 200,
+            responseBody: JSON.stringify({ access_token: NEW_TOKEN }),
+          },
+        ]
+      : before
+}
+
+describe('TokenRefreshService — 401/403 response trigger', () => {
+  const unauthorized: ExecutedResponse = {
+    endpointId: 'get /site-surveys',
+    method: 'get',
+    endpoint: '/site-surveys',
+    status: 401,
+    responseBody: '{"detail":"token expired"}',
+  }
+
+  it('refreshes on a new 401 even for an opaque token (no exp)', async () => {
+    const ref = { done: false }
+    const applyTemplate = vi.fn(async (): Promise<Result<void>> => {
+      ref.done = true
+      return ok(undefined)
+    })
+    const auth = mockAuth(undefined) // opaque token: no expiresAt at all
+    const service = makeService({
+      responses: loginResponses(ref, [unauthorized]),
+      auth,
+      templates: mockTemplates([loginTemplate], applyTemplate),
+    })
+
+    const result = await service.noticeResponses('qa')
+    expect(result).toEqual({ ok: true, value: true })
+    expect(applyTemplate).toHaveBeenCalledWith('tpl1')
+    expect(auth.applyToken).toHaveBeenCalledWith('qa', NEW_TOKEN, 'bearerAuth')
+  })
+
+  it('ignores non-4xx responses and does not double-fire on the same 401', async () => {
+    const ref = { done: false }
+    const auth = mockAuth(undefined)
+    const service = makeService({
+      responses: loginResponses(ref, [unauthorized]),
+      auth,
+      templates: mockTemplates([loginTemplate]),
+    })
+    await service.noticeResponses('qa') // handles the 401 once
+    const second = service.noticeResponses('qa') // same signature → ignored
+    expect(second).toBeUndefined()
+  })
+
+  it('does nothing on 401 when disabled', () => {
+    const service = makeService({
+      responses: () => [unauthorized],
+      auth: mockAuth(undefined),
+      templates: mockTemplates([loginTemplate]),
+      enabled: () => false,
+    })
+    expect(service.noticeResponses('qa')).toBeUndefined()
+  })
+
+  it('honors the cooldown between attempts (breaks login-failure loops)', async () => {
+    const auth = mockAuth(NOW - 1)
+    const templates = mockTemplates([loginTemplate])
+    // Large cooldown + constant clock → the second attempt is always within it.
+    const service = makeService({ auth, templates, cooldownMs: 60_000 })
+
+    await service.refreshIfExpired('qa') // first attempt runs (finds no token → ok(false))
+    templates.applyTemplate.mockClear()
+    await service.refreshIfExpired('qa') // within cooldown → skipped
+    expect(templates.applyTemplate).not.toHaveBeenCalled()
   })
 })

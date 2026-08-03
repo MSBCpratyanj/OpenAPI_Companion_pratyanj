@@ -17,6 +17,8 @@ function mockService(over: Partial<AuthPanelService> = {}): AuthPanelService {
   return {
     current: vi.fn(async (): Promise<Result<AuthRecord | null>> => ok(null)),
     clear: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
+    isAutoRefreshEnabled: vi.fn(async () => false),
+    setAutoRefreshEnabled: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
     ...over,
   }
 }
@@ -54,6 +56,25 @@ describe('AuthPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear authentication' }))
     expect(service.clear).toHaveBeenCalledWith('default')
+  })
+
+  it('toggles auto-refresh and persists it via the service', async () => {
+    const service = mockService()
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+    const toggle = await screen.findByRole('checkbox', { name: /Auto-refresh token on expiry/ })
+    expect(toggle).not.toBeChecked()
+
+    fireEvent.click(toggle)
+    await waitFor(() => expect(service.setAutoRefreshEnabled).toHaveBeenCalledWith(true))
+    expect(toggle).toBeChecked()
+  })
+
+  it('reflects the stored auto-refresh state on load', async () => {
+    const service = mockService({ isAutoRefreshEnabled: vi.fn(async () => true) })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: /Auto-refresh token on expiry/ })).toBeChecked(),
+    )
   })
 
   it('reloads when an AUTH_UPDATED event fires', async () => {
