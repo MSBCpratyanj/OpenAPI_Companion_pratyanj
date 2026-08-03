@@ -87,29 +87,45 @@ async function boot(): Promise<void> {
   // FIRST USE — a static import would make every page in the browser pay ~170 kB
   // of React up front just in case the user hits ⌘K.
   let palette: PaletteHandle | null = null
-  const withPalette = async (): Promise<PaletteHandle> => {
+  const withPalette = async (): Promise<PaletteHandle | null> => {
     if (palette) return palette
-    const { mountPalette } = await import('./palette')
-    palette = mountPalette(productivity)
-    // Theme it from the shared preference, and re-read when the panel changes it
-    // (separate contexts, so the bus doesn't cross the boundary — storage does).
-    const paletteTheme = new ThemeManager({ storage, root: palette.themeRoot, bus })
-    await paletteTheme.init()
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && Object.keys(changes).some((k) => k.includes('theme'))) {
-        void paletteTheme.init()
-      }
-    })
-    return palette
+    try {
+      const { mountPalette } = await import('./palette')
+      palette = mountPalette(productivity)
+      // Theme it from the shared preference, and re-read when the panel changes it
+      // (separate contexts, so the bus doesn't cross the boundary — storage does).
+      const paletteTheme = new ThemeManager({ storage, root: palette.themeRoot, bus })
+      await paletteTheme.init()
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && Object.keys(changes).some((k) => k.includes('theme'))) {
+          void paletteTheme.init()
+        }
+      })
+      return palette
+    } catch (cause) {
+      // Reloading/rebuilding the extension ORPHANS this already-injected script:
+      // its chunk filenames are content-hashed, so the lazy import now 404s.
+      // Say so plainly instead of leaving an anonymous rejection in the console.
+      const orphaned = !chrome.runtime?.id
+      console.warn(
+        `${LOG} could not load the search palette${
+          orphaned ? ' — this tab is running an old copy of the extension.' : '.'
+        } Refresh the page (⌘⇧R) to pick up the current build.`,
+        cause,
+      )
+      return null
+    }
   }
 
-  // Capture phase so Swagger's own inputs can't swallow the shortcut.
+  // Capture phase so Swagger's own inputs can't swallow the shortcut. `key` is
+  // optional-chained because page scripts can dispatch synthetic keydowns
+  // without it, and a TypeError here would kill the whole listener.
   document.addEventListener(
     'keydown',
     (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key?.toLowerCase() === 'k') {
         e.preventDefault()
-        void withPalette().then((p) => p.toggle())
+        void withPalette().then((p) => p?.toggle())
       }
     },
     true,
@@ -202,7 +218,7 @@ async function boot(): Promise<void> {
     'state.get': () => buildState(),
     // Panel's search button → open the in-page palette (top-centered on the doc).
     'palette.open': () => {
-      void withPalette().then((p) => p.open())
+      void withPalette().then((p) => p?.open())
       return ok(undefined)
     },
     'history.list': ([q]) => history.list((q as Parameters<typeof history.list>[0]) ?? {}),
