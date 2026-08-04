@@ -341,4 +341,316 @@ describe('TokenRefreshService — 401/403 response trigger', () => {
     await service.refreshIfExpired('qa') // within cooldown → skipped
     expect(templates.applyTemplate).not.toHaveBeenCalled()
   })
+
+  // Regression: this returned false and said nothing, so an enabled toggle looked
+  // broken when the real problem was a missing prerequisite.
+  it('warns once when the token is expired but no login request is saved', async () => {
+    const bus = new EventBus()
+    const notes: unknown[] = []
+    bus.subscribe('NOTIFY', (p) => notes.push(p))
+    const service = new TokenRefreshService({
+      adapter: mockAdapter(() => []),
+      auth: {
+        current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000 }),
+        applyToken: async () => ok(undefined),
+      },
+      templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
+      bus,
+      now: () => NOW,
+      cooldownMs: 0,
+    })
+
+    expect(await service.refreshIfExpired('default')).toEqual({ ok: true, value: false })
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toMatchObject({ kind: 'warning' })
+
+    // Repeated DOM churn must not spam the same warning.
+    await service.refreshIfExpired('default')
+    expect(notes).toHaveLength(1)
+  })
+
+  // The real-world shape that failed: token nested under data.tokens, and a body
+  // that arrived with Swagger's "Download" label glued to the front.
+  it('extracts a nested access_token, even from a body with a stray prefix', async () => {
+    const LOGIN = 'post /auth/login'
+    const body = JSON.stringify({
+      success: true,
+      data: {
+        user: { id: '36a0db17', email: 'dhruv@gmc.com' },
+        tokens: {
+          access_token: 'eyJhbGciOi.PAYLOAD.SIG',
+          refresh_token: 'r',
+          token_type: 'bearer',
+        },
+      },
+    })
+
+    // Nothing rendered until the login actually runs — the service only accepts a
+    // response that appeared AFTER it applied the template.
+    let responses: ExecutedResponse[] = []
+    let applied: string | null = null
+
+    const service = new TokenRefreshService({
+      adapter: mockAdapter(() => responses),
+      auth: {
+        current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000, schemeName: 'Bearer' }),
+        applyToken: async (_env, token) => {
+          applied = token
+          return ok(undefined)
+        },
+      },
+      templates: {
+        listTemplates: async () =>
+          ok([{ templateId: 't1', name: 'DEV', endpointId: LOGIN, environmentId: 'default' }]),
+        applyTemplate: async () => {
+          responses = [
+            {
+              endpointId: LOGIN,
+              method: 'post',
+              endpoint: '/auth/login',
+              status: 200,
+              responseBody: `Download${body}`,
+            },
+          ]
+          return ok(undefined)
+        },
+      },
+      now: () => NOW,
+      cooldownMs: 0,
+      setTimeoutFn: (fn) => {
+        fn()
+        return 0
+      },
+    })
+
+    expect(await service.refreshIfExpired('default')).toEqual({ ok: true, value: true })
+    expect(applied).toBe('eyJhbGciOi.PAYLOAD.SIG')
+  })
+
+  // With several tokens saved, a shared login template would refresh the WRONG
+  // account. The credential in use carries its own login, so it wins — and only
+  // that credential's stored token is rewritten.
+  it('signs in with the active token’s own credentials and updates only that token', async () => {
+    const LOGIN = 'post /auth/login'
+    let applied: string | null = null
+    let replayedBody: string | undefined
+    const updated: Array<[string, string]> = []
+    let responses: ExecutedResponse[] = []
+
+    const service = new TokenRefreshService({
+      adapter: {
+        ...mockAdapter(() => responses),
+        listEndpoints: () => [
+          { endpointId: 'get /users', method: 'get', path: '/users' },
+          { endpointId: LOGIN, method: 'post', path: '/auth/login' },
+        ],
+        // The endpoint was last called with an extra field — it must survive.
+        readOpenRequests: () => [
+          {
+            endpointId: LOGIN,
+            method: 'post',
+            body: '{"email":"old@acme.io","password":"old","tenant":"acme"}',
+          },
+        ],
+        replay: (_id, body) => {
+          replayedBody = body
+          responses = [
+            {
+              endpointId: LOGIN,
+              method: 'post',
+              endpoint: '/auth/login',
+              status: 200,
+              responseBody: '{"data":{"tokens":{"access_token":"ADMIN_NEW"}}}',
+            },
+          ]
+          return ok(undefined)
+        },
+      },
+      auth: {
+        current: async () => ok({ token: 'ADMIN_OLD', expiresAt: NOW - 1000 }),
+        applyToken: async (_env, token) => {
+          applied = token
+          return ok(undefined)
+        },
+      },
+      // A matching template exists and must be ignored in favour of the account's
+      // own credentials.
+      templates: {
+        listTemplates: async () =>
+          ok([
+            {
+              templateId: 't1',
+              name: 'DEV login',
+              endpointId: LOGIN,
+              environmentId: 'default',
+            },
+          ]),
+        applyTemplate: async () => {
+          throw new Error('must not re-run the shared template')
+        },
+      },
+      vault: {
+        activeLogin: async () => ({
+          credentialId: 'cred_admin',
+          username: 'admin@acme.io',
+          password: 'secret',
+        }),
+        updateSavedToken: async (id, token) => {
+          updated.push([id, token])
+          return ok(undefined)
+        },
+      },
+      now: () => NOW,
+      cooldownMs: 0,
+      setTimeoutFn: (fn) => {
+        fn()
+        return 0
+      },
+    })
+
+    expect(await service.refreshIfExpired('default')).toEqual({ ok: true, value: true })
+    expect(applied).toBe('ADMIN_NEW')
+    // Credentials swapped in, `tenant` preserved — no URL or field names needed.
+    expect(JSON.parse(replayedBody ?? '{}')).toEqual({
+      email: 'admin@acme.io',
+      password: 'secret',
+      tenant: 'acme',
+    })
+    // Exactly one saved token rewritten: the one that was signed in.
+    expect(updated).toEqual([['cred_admin', 'ADMIN_NEW']])
+  })
+
+  it('says so when the API exposes no login endpoint to sign in with', async () => {
+    const notes: unknown[] = []
+    const bus = new EventBus()
+    bus.subscribe('NOTIFY', (p) => notes.push(p))
+    const service = new TokenRefreshService({
+      adapter: { ...mockAdapter(() => []), listEndpoints: () => [] },
+      auth: {
+        current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000 }),
+        applyToken: async () => ok(undefined),
+      },
+      templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
+      vault: {
+        activeLogin: async () => ({ credentialId: 'c1', username: 'u', password: 'p' }),
+        updateSavedToken: async () => ok(undefined),
+      },
+      bus,
+      now: () => NOW,
+      cooldownMs: 0,
+    })
+
+    expect(await service.refreshIfExpired('default')).toEqual({ ok: true, value: false })
+    expect(notes[0]).toMatchObject({ kind: 'warning' })
+  })
+})
+// Regression: matching on `auth` alone picked POST /auth/forgot-password and sent
+// the saved password there, which emails the user. Selection must be strict, and
+// must refuse to guess rather than hit a destructive endpoint.
+describe('TokenRefreshService login endpoint selection', () => {
+  const endpointsOf = (paths: Array<[string, string]>) =>
+    paths.map(([method, path]) => ({ endpointId: `${method} ${path}`, method, path }))
+
+  const service = (paths: Array<[string, string]>) =>
+    new TokenRefreshService({
+      adapter: { ...mockAdapter(() => []), listEndpoints: () => endpointsOf(paths) },
+      auth: { current: async () => ok(null), applyToken: async () => ok(undefined) },
+      templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
+      now: () => NOW,
+    })
+
+  it('picks the real sign-in over other auth endpoints, whatever the order', () => {
+    // forgot-password listed FIRST — the order that produced the bug.
+    expect(
+      service([
+        ['post', '/auth/forgot-password'],
+        ['post', '/auth/login'],
+        ['post', '/auth/logout'],
+      ]).findLoginEndpoint(),
+    ).toBe('post /auth/login')
+
+    expect(
+      service([
+        ['post', '/auth/register'],
+        ['post', '/api/v1/signin'],
+      ]).findLoginEndpoint(),
+    ).toBe('post /api/v1/signin')
+  })
+
+  it('refuses to guess when there is no sign-in endpoint', () => {
+    for (const paths of [
+      [['post', '/auth/forgot-password']],
+      [['post', '/auth/reset-password']],
+      [['post', '/auth/register']],
+      [['post', '/auth/refresh']],
+      [['post', '/auth/verify-otp']],
+      [['post', '/users']],
+      [],
+    ] as Array<Array<[string, string]>>) {
+      expect(service(paths).findLoginEndpoint()).toBeNull()
+    }
+  })
+
+  it('ignores GET endpoints and non-sign-in summaries', () => {
+    expect(service([['get', '/auth/login']]).findLoginEndpoint()).toBeNull()
+  })
+})
+
+// "Add account": sign in with credentials and hand back the token, without
+// disturbing whatever is currently authorized.
+describe('TokenRefreshService.signIn', () => {
+  const LOGIN = 'post /auth/login'
+
+  it('returns the token issued by the login response', async () => {
+    let responses: ExecutedResponse[] = []
+    const service = new TokenRefreshService({
+      adapter: {
+        ...mockAdapter(() => responses),
+        listEndpoints: () => [{ endpointId: LOGIN, method: 'post', path: '/auth/login' }],
+        replay: () => {
+          responses = [
+            {
+              endpointId: LOGIN,
+              method: 'post',
+              endpoint: '/auth/login',
+              status: 200,
+              responseBody: '{"data":{"tokens":{"access_token":"NEW_ADMIN"}}}',
+            },
+          ]
+          return ok(undefined)
+        },
+      },
+      auth: {
+        current: async () => ok(null),
+        applyToken: async () => {
+          throw new Error('adding an account must not change what is authorized')
+        },
+      },
+      templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
+      now: () => NOW,
+      setTimeoutFn: (fn) => {
+        fn()
+        return 0
+      },
+    })
+
+    expect(await service.signIn({ username: 'admin@acme.io', password: 'p' })).toEqual({
+      ok: true,
+      value: 'NEW_ADMIN',
+    })
+    // And it's visible in the activity log.
+    expect(service.recentActivity()[0]).toMatchObject({ outcome: 'success' })
+  })
+
+  it('fails clearly when the API has no sign-in endpoint', async () => {
+    const service = new TokenRefreshService({
+      adapter: { ...mockAdapter(() => []), listEndpoints: () => [] },
+      auth: { current: async () => ok(null), applyToken: async () => ok(undefined) },
+      templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
+      now: () => NOW,
+    })
+    const result = await service.signIn({ username: 'u', password: 'p' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('AUTH_NO_LOGIN_ENDPOINT')
+  })
 })

@@ -14,5 +14,8 @@ export type {
   TokenRefreshOptions,
   RefreshAuthApi,
   RefreshTemplateApi,
+  RefreshVaultApi,
   TemplateLike,
+  SavedLoginLike,
+  RefreshLogEntry,
 } from './token-refresh'

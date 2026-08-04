@@ -1,4 +1,4 @@
-import { ok, type Result } from '@/types'
+import { ok, err, type Result } from '@/types'
 import type { EventBus } from '@/core/events'
 import type { SwaggerAdapter } from '@/adapters'
 
@@ -21,6 +21,21 @@ export interface RefreshAuthApi {
   applyToken(environmentId: string, token: string, schemeName?: string): Promise<Result<unknown>>
 }
 
+/** Login attached to a saved credential, plus which credential it belongs to. */
+export interface SavedLoginLike {
+  credentialId: string
+  username: string
+  password: string
+}
+
+/** What we need from the credential vault. */
+export interface RefreshVaultApi {
+  /** Login for the credential currently in use, or null. */
+  activeLogin(environmentId: string): Promise<SavedLoginLike | null>
+  /** Store a freshly issued token on that one credential. */
+  updateSavedToken(credentialId: string, token: string): Promise<Result<unknown>>
+}
+
 /** What we need from RequestService. */
 export interface RefreshTemplateApi {
   listTemplates(): Promise<Result<TemplateLike[]>>
@@ -40,10 +55,37 @@ export interface TemplateLike {
   environmentId: string
 }
 
+/**
+ * Parse a response body that may carry decoration from Swagger's own UI (its
+ * Download / Copy controls render inside the body wrapper on some versions). We
+ * strip that at the DOM boundary, but retry from the first brace here so one
+ * stray label can't cost the user a token.
+ */
+function parseJsonLoose(body: string): unknown {
+  try {
+    return JSON.parse(body)
+  } catch {
+    const start = body.search(/[[{]/)
+    if (start <= 0) throw new Error('not JSON')
+    return JSON.parse(body.slice(start))
+  }
+}
+
+/** One step of a refresh attempt, shown in the Auth panel so the flow is visible. */
+export interface RefreshLogEntry {
+  at: number
+  outcome: 'triggered' | 'skipped' | 'success' | 'failed'
+  message: string
+}
+
+const MAX_LOG = 12
+
 export interface TokenRefreshOptions {
   adapter: SwaggerAdapter
   auth: RefreshAuthApi
   templates: RefreshTemplateApi
+  /** Optional credential vault — its stored login is preferred over a template. */
+  vault?: RefreshVaultApi
   bus?: EventBus
   now?: () => number
   /** Feature gate — refresh only runs when this returns true (default: always). */
@@ -60,6 +102,20 @@ export interface TokenRefreshOptions {
 
 /** Template names/endpoints that identify a login request. */
 const LOGIN_RE = /log[-_ ]?in|sign[-_ ]?in|authenticate|auth\b|token/i
+
+/**
+ * Endpoints that must NEVER be called with saved credentials, even though their
+ * paths look auth-related. Guessing here has real consequences: a loose match on
+ * `auth` once fired `POST /auth/forgot-password`, which emails the user.
+ */
+const NOT_LOGIN_RE =
+  /forgot|reset|recover|change|update|register|sign[-_ ]?up|signup|log[-_ ]?out|sign[-_ ]?out|logout|refresh|verify|confirm|activate|resend|invite|otp|2fa|mfa|social|oauth|google|apple|facebook|github/i
+
+/** An unmistakable sign-in path: the LAST segment is login / signin / token. */
+const LOGIN_PATH_RE = /(?:^|\/)(?:log[-_ ]?in|sign[-_ ]?in|signin|login|token|authenticate)\/?$/i
+
+/** Weaker signal, used only after the exclusions above have been applied. */
+const LOGIN_HINT_RE = /log[-_ ]?in|sign[-_ ]?in|authenticate/i
 
 /** Response fields commonly carrying the fresh token, most-specific first. */
 const TOKEN_KEYS = [
@@ -101,6 +157,7 @@ export class TokenRefreshService {
   private readonly adapter: SwaggerAdapter
   private readonly auth: RefreshAuthApi
   private readonly templates: RefreshTemplateApi
+  private readonly vault: RefreshVaultApi | undefined
   private readonly bus: EventBus | undefined
   private readonly now: () => number
   private readonly pollMs: number
@@ -110,13 +167,17 @@ export class TokenRefreshService {
   private readonly cooldownMs: number
   private running = false
   private lastAttempt = 0
+  /** Warn once per missing-template streak, not on every DOM mutation. */
+  private warnedNoTemplate = false
   /** Signatures of already-handled auth-failure responses (dedup across mutations). */
   private readonly seenFailures = new Set<string>()
+  private readonly log: RefreshLogEntry[] = []
 
   constructor(options: TokenRefreshOptions) {
     this.adapter = options.adapter
     this.auth = options.auth
     this.templates = options.templates
+    this.vault = options.vault
     this.bus = options.bus
     this.now = options.now ?? (() => Date.now())
     this.enabled = options.enabled ?? (() => true)
@@ -127,10 +188,82 @@ export class TokenRefreshService {
   }
 
   /** The saved login template for this environment (same-env first, else any). */
+  /**
+   * Sign in with the given credentials and return the freshly issued token,
+   * without touching what's currently authorized. Used both by auto-refresh and
+   * by "add an account", which needs the token to store against a new name.
+   */
+  async signIn(login: { username: string; password: string }): Promise<Result<string>> {
+    const endpointId = this.findLoginEndpoint()
+    if (!endpointId) {
+      this.note('failed', 'No sign-in endpoint found in this API')
+      return err({
+        code: 'AUTH_NO_LOGIN_ENDPOINT',
+        message: 'No sign-in endpoint could be identified in this API.',
+        recoverable: true,
+      })
+    }
+
+    const before = new Map(
+      this.adapter
+        .readExecutedResponses()
+        .map((r) => [r.endpointId, `${r.status}:${r.responseBody ?? ''}`]),
+    )
+    this.note('triggered', `Signing in as ${login.username} via ${endpointId}`)
+
+    const replayed = this.adapter.replay(
+      endpointId,
+      this.buildLoginBody(endpointId, { ...login, credentialId: '' }),
+    )
+    if (!replayed.ok) {
+      this.note('failed', `Could not run ${endpointId}: ${replayed.error.message}`)
+      return replayed
+    }
+
+    const token = await this.awaitLoginToken(endpointId, before)
+    if (!token) {
+      this.note('failed', 'Sign-in ran but no token was found in the response')
+      return err({
+        code: 'AUTH_NO_TOKEN_IN_RESPONSE',
+        message: 'Signed in, but no token was found in the response.',
+        recoverable: true,
+      })
+    }
+    this.note('success', `Signed in as ${login.username} (${token.slice(-6)})`)
+    return ok(token)
+  }
+
+  /** Most recent activity first — what fired, what was skipped, and why. */
+  recentActivity(): RefreshLogEntry[] {
+    return [...this.log].reverse()
+  }
+
+  private note(outcome: RefreshLogEntry['outcome'], message: string): void {
+    this.log.push({ at: this.now(), outcome, message })
+    if (this.log.length > MAX_LOG) this.log.shift()
+  }
+
+  /**
+   * Run the refresh now, ignoring the cooldown — the "test it" path, so the user
+   * can watch the flow instead of waiting for a token to expire.
+   */
+  async refreshNow(environmentId: string): Promise<Result<boolean>> {
+    this.lastAttempt = 0
+    this.seenFailures.clear()
+    this.note('triggered', 'Manual refresh requested')
+    return this.maybeRefresh(environmentId, true)
+  }
+
   async findLoginTemplate(environmentId: string): Promise<TemplateLike | null> {
     const listed = await this.templates.listTemplates()
     if (!listed.ok) return null
-    const logins = listed.value.filter((t) => LOGIN_RE.test(t.name) || LOGIN_RE.test(t.endpointId))
+    const logins = listed.value.filter(
+      (t) =>
+        (LOGIN_RE.test(t.name) || LOGIN_RE.test(t.endpointId)) &&
+        // Never re-run a saved forgot-password / register / logout request.
+        !NOT_LOGIN_RE.test(t.name) &&
+        !NOT_LOGIN_RE.test(t.endpointId),
+    )
     return logins.find((t) => t.environmentId === environmentId) ?? logins[0] ?? null
   }
 
@@ -168,18 +301,166 @@ export class TokenRefreshService {
    * fresh token was stored. Guarded by: enabled, not-running, cooldown, a stored
    * credential, and a recognizable login template.
    */
+  /**
+   * Sign this account back in using only the saved email + password.
+   *
+   * Runs through Swagger itself (fill the login operation, press Execute) rather
+   * than composing a URL: Swagger already knows the server and base path, so the
+   * user never has to supply them. The body reuses whatever shape that endpoint
+   * was last called with, so extra fields the API needs survive — only the
+   * username / password values are swapped in.
+   */
+  private async loginWithCredentials(
+    environmentId: string,
+    login: SavedLoginLike,
+    schemeName?: string,
+  ): Promise<Result<boolean>> {
+    const endpointId = this.findLoginEndpoint()
+    if (!endpointId) {
+      this.note('failed', 'No sign-in endpoint found in this API')
+      this.bus?.publish('NOTIFY', {
+        kind: 'warning',
+        message: 'Token expired, but no login endpoint was found in this API to sign in with.',
+      })
+      return ok(false)
+    }
+
+    const before = new Map(
+      this.adapter
+        .readExecutedResponses()
+        .map((r) => [r.endpointId, `${r.status}:${r.responseBody ?? ''}`]),
+    )
+
+    this.note('triggered', `Signing in as ${login.username} via ${endpointId}`)
+    const replayed = this.adapter.replay(endpointId, this.buildLoginBody(endpointId, login))
+    if (!replayed.ok) {
+      this.note('failed', `Could not run ${endpointId}: ${replayed.error.message}`)
+      return replayed
+    }
+
+    const token = await this.awaitLoginToken(endpointId, before)
+    if (!token) {
+      this.note('failed', 'Sign-in ran but no token was found in the response')
+      this.bus?.publish('NOTIFY', {
+        kind: 'warning',
+        message: 'Signed in with the saved credentials but found no token in the response.',
+      })
+      return ok(false)
+    }
+
+    const applied = await this.auth.applyToken(environmentId, token, schemeName)
+    if (!applied.ok) return applied
+    // Only THIS credential is rewritten — the other saved tokens are untouched.
+    await this.vault?.updateSavedToken(login.credentialId, token)
+    this.note('success', `New token stored and applied (${token.slice(-6)})`)
+    this.bus?.publish('NOTIFY', {
+      kind: 'success',
+      message: 'Token expired — signed in again with this account’s saved credentials.',
+    })
+    return ok(true)
+  }
+
+  /**
+   * The API's own sign-in operation, from the spec Swagger has rendered.
+   *
+   * Deliberately strict: anything that merely mentions "auth" is rejected, since
+   * posting credentials to the wrong endpoint has side effects (forgot-password
+   * emails the user, register creates accounts). If nothing is unmistakably a
+   * sign-in, this returns null and the caller tells the user instead of guessing.
+   */
+  findLoginEndpoint(): string | null {
+    const candidates = this.adapter
+      .listEndpoints()
+      .filter((e) => e.method.toLowerCase() === 'post')
+      .filter((e) => !NOT_LOGIN_RE.test(e.path) && !NOT_LOGIN_RE.test(e.summary ?? ''))
+
+    return (
+      // "/auth/login", "/login", "/api/v1/signin" — the path ends with sign-in.
+      candidates.find((e) => LOGIN_PATH_RE.test(e.path))?.endpointId ??
+      // Otherwise a path that still clearly says log in / sign in.
+      candidates.find((e) => LOGIN_HINT_RE.test(e.path))?.endpointId ??
+      candidates.find((e) => LOGIN_HINT_RE.test(e.summary ?? ''))?.endpointId ??
+      null
+    )
+  }
+
+  /**
+   * Login body carrying the saved credentials. Starts from the shape that
+   * endpoint was last called with (so `tenant`, `device_id` and friends survive)
+   * and replaces only the username-ish and password-ish fields.
+   */
+  private buildLoginBody(endpointId: string, login: SavedLoginLike): string {
+    const previous = this.adapter.readOpenRequests().find((r) => r.endpointId === endpointId)?.body
+    if (previous) {
+      try {
+        const parsed = JSON.parse(previous) as Record<string, unknown>
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const body = { ...parsed }
+          for (const key of Object.keys(body)) {
+            if (/pass/i.test(key)) body[key] = login.password
+            else if (/mail|user|login|phone/i.test(key)) body[key] = login.username
+          }
+          return JSON.stringify(body)
+        }
+      } catch {
+        /* not JSON — fall through to the default shape */
+      }
+    }
+    return JSON.stringify({ email: login.username, password: login.password })
+  }
+
   private async maybeRefresh(environmentId: string, force: boolean): Promise<Result<boolean>> {
-    if (!this.enabled()) return ok(false)
+    if (!this.enabled()) {
+      this.note('skipped', 'Auto-refresh is turned off')
+      return ok(false)
+    }
     if (this.running) return ok(false)
-    if (this.now() - this.lastAttempt < this.cooldownMs) return ok(false)
+    if (this.now() - this.lastAttempt < this.cooldownMs) {
+      this.note('skipped', 'Just tried — waiting for the cooldown before retrying')
+      return ok(false)
+    }
 
     const got = await this.auth.current(environmentId)
-    if (!got.ok || !got.value) return ok(false)
+    if (!got.ok || !got.value) {
+      this.note('skipped', 'Nothing is authorized, so there is no token to refresh')
+      return ok(false)
+    }
     const record = got.value
     if (!force && (record.expiresAt == null || record.expiresAt > this.now())) return ok(false)
 
+    // Per-account first: the credential in use may carry its own login, which is
+    // the only way to refresh the RIGHT account when several tokens are saved.
+    const stored = await this.vault?.activeLogin(environmentId)
+    if (stored) {
+      this.running = true
+      this.lastAttempt = this.now()
+      try {
+        return await this.loginWithCredentials(environmentId, stored, record.schemeName)
+      } finally {
+        this.running = false
+      }
+    }
+
     const login = await this.findLoginTemplate(environmentId)
-    if (!login) return ok(false) // nothing saved to log in with
+    if (!login) {
+      // The feature can't work without a login request to re-run. Saying nothing
+      // here made an enabled toggle look broken — especially now that "Saved
+      // tokens" exists, which is a different thing entirely.
+      this.note(
+        'skipped',
+        'No credentials saved for the token in use, and no saved login request to run',
+      )
+      if (!this.warnedNoTemplate) {
+        this.warnedNoTemplate = true
+        this.bus?.publish('NOTIFY', {
+          kind: 'warning',
+          message:
+            'Token expired, but no saved login request was found. Open the login endpoint in Swagger, then save it from the Requests tab.',
+        })
+      }
+      return ok(false)
+    }
+    this.warnedNoTemplate = false
 
     this.running = true
     this.lastAttempt = this.now()
@@ -227,7 +508,7 @@ export class TokenRefreshService {
           if (before.get(endpointId) === signature) continue // stale render
           if (res.status < 200 || res.status >= 300 || !res.responseBody) continue
           try {
-            const token = extractToken(JSON.parse(res.responseBody))
+            const token = extractToken(parseJsonLoose(res.responseBody))
             if (token) {
               resolve(token)
               return
