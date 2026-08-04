@@ -1,14 +1,17 @@
 import { useState } from 'react'
 import {
   Badge,
+  Button,
   CopyButton,
   Tabs,
   type TabDef,
   ClockIcon,
+  LocateIcon,
+  ReplayIcon,
   RequestIcon,
   ResponseIcon,
 } from '@/components'
-import type { HistoryRecord } from './types'
+import type { HistoryEntry, HistoryRecord } from './types'
 import { statusKind } from './status'
 
 const TABS: TabDef[] = [
@@ -81,12 +84,30 @@ function Panel({
   )
 }
 
+export interface HistoryDetailProps {
+  record: HistoryRecord
+  /** Every recorded call to this same operation, newest first (for the timeline). */
+  calls?: HistoryEntry[]
+  /** Load another call of this operation into the inspector. */
+  onSelectCall?: (id: string) => void
+  onReplay?: (id: string) => void
+  onLocate?: (endpointId: string) => void
+}
+
 /**
  * Tabbed inspector for a history entry: a fixed summary header (status / method
  * / path + metadata) with Request / Response tabs, each showing the (pretty-
- * printed) body and a copy button.
+ * printed) body and a copy button — plus Replay / Locate, and a timeline of the
+ * other times this same operation was called, so repeats are comparable without
+ * closing the dialog.
  */
-export function HistoryDetail({ record }: { record: HistoryRecord }) {
+export function HistoryDetail({
+  record,
+  calls = [],
+  onSelectCall,
+  onReplay,
+  onLocate,
+}: HistoryDetailProps) {
   const [tab, setTab] = useState('request')
   // Wrap by default: the panel is narrow, and long tokens/URLs would otherwise
   // need sideways scrolling. Kept at this level so it survives a tab switch.
@@ -114,6 +135,57 @@ export function HistoryDetail({ record }: { record: HistoryRecord }) {
           <span>env: {record.environmentId}</span>
         </div>
       </div>
+
+      {onReplay || onLocate ? (
+        <div className="flex flex-wrap gap-2">
+          {onReplay ? (
+            <Button variant="secondary" onClick={() => onReplay(record.id)}>
+              <ReplayIcon className="h-3.5 w-3.5" />
+              Replay
+            </Button>
+          ) : null}
+          {onLocate ? (
+            <Button variant="secondary" onClick={() => onLocate(record.endpointId)}>
+              <LocateIcon className="h-3.5 w-3.5" />
+              Locate in Swagger
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {calls.length > 1 ? (
+        <div className="flex flex-col gap-1">
+          <span className="px-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+            {calls.length} calls to this endpoint
+          </span>
+          <ul
+            aria-label="Calls to this endpoint"
+            className="flex max-h-[18vh] flex-col gap-1 overflow-auto"
+          >
+            {calls.map((call) => {
+              const active = call.id === record.id
+              return (
+                <li key={call.id}>
+                  <button
+                    type="button"
+                    aria-current={active}
+                    onClick={() => onSelectCall?.(call.id)}
+                    className={`flex w-full items-center gap-2 rounded-md border px-2 py-1 text-left text-[11px] ${
+                      active
+                        ? 'border-primary bg-surface text-text'
+                        : 'border-border text-muted hover:bg-surface hover:text-text'
+                    }`}
+                  >
+                    <Badge kind={statusKind(call.status)}>{call.status}</Badge>
+                    <span className="flex-1 truncate">{formatTime(call.timestamp)}</span>
+                    {call.durationMs != null ? <span>{call.durationMs} ms</span> : null}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : null}
 
       <Tabs tabs={TABS} activeId={tab} onChange={setTab} />
 

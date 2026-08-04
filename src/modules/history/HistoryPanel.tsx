@@ -175,7 +175,15 @@ export function HistoryPanel({ service, bus }: HistoryPanelProps) {
 
       {detail ? (
         <Dialog title="Request detail" onClose={() => setDetail(null)} size="full">
-          <HistoryDetail record={detail} />
+          <HistoryDetail
+            record={detail}
+            // Sibling calls come from the list already loaded here — no extra
+            // service call needed, and it stays in sync with the filters above.
+            calls={entries.filter((e) => e.endpointId === detail.endpointId)}
+            onSelectCall={(id) => void openDetail(id)}
+            onReplay={(id) => void replay(id)}
+            onLocate={locate}
+          />
         </Dialog>
       ) : null}
     </div>

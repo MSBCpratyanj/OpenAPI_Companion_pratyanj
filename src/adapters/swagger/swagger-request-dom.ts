@@ -30,6 +30,34 @@ export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value
   el.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+/**
+ * Notify on every **Execute** click, with the operation it belongs to.
+ *
+ * History capture reads the rendered response DOM and must de-duplicate, since
+ * its observer re-fires on unrelated mutations. Content alone can't tell "the
+ * same response, re-read" from "called again with an identical result" — so this
+ * supplies the missing signal: an actual execution happened. Capture-phase, and
+ * matched via composedPath, so it still sees clicks Swagger stops later.
+ * `replay()` clicks the same button, so replays are covered too.
+ */
+export function observeExecutions(
+  cb: (endpointId: string) => void,
+  doc: Document = document,
+): () => void {
+  const onClick = (event: Event): void => {
+    const path = event.composedPath?.() ?? []
+    const target = (path.length ? path : [event.target]).find(
+      (node): node is Element => node instanceof Element && node.matches?.(EXECUTE_BTN),
+    )
+    if (!target) return
+    const block = target.closest(ANY_BLOCK)
+    const endpointId = block ? endpointIdOf(block) : null
+    if (endpointId) cb(endpointId)
+  }
+  doc.addEventListener('click', onClick, true)
+  return () => doc.removeEventListener('click', onClick, true)
+}
+
 /** Stable-ish id for an operation block: `"<method> <path>"`. */
 export function endpointIdOf(block: Element): string | null {
   const method = block.querySelector('.opblock-summary-method')?.textContent?.trim().toLowerCase()

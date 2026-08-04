@@ -7,6 +7,7 @@ import {
   findAnyBlock,
   autoExecute,
   clickExecute,
+  observeExecutions,
 } from './swagger-request-dom'
 
 /** Minimal synthetic Swagger operation block matching the selectors we rely on. */
@@ -228,5 +229,43 @@ describe('swagger-request-dom', () => {
   it('clickExecute returns false when there is no Execute button', () => {
     document.body.innerHTML = opblock('POST', '/users')
     expect(clickExecute(document.querySelector('.opblock')!)).toBe(false)
+  })
+})
+
+describe('observeExecutions', () => {
+  it('reports the operation for each Execute click, and stops on unsubscribe', () => {
+    document.body.innerHTML = `
+      <div class="opblock">
+        <div class="opblock-summary">
+          <span class="opblock-summary-method">POST</span>
+          <span class="opblock-summary-path" data-path="/auth/login"></span>
+        </div>
+        <button class="btn execute">Execute</button>
+      </div>`
+    const seen: string[] = []
+    const stop = observeExecutions((id) => seen.push(id))
+    const button = document.querySelector<HTMLButtonElement>('.btn.execute')!
+
+    button.click()
+    button.click() // a genuine second call — must report again, not de-dupe
+    expect(seen).toEqual(['post /auth/login', 'post /auth/login'])
+
+    stop()
+    button.click()
+    expect(seen).toHaveLength(2)
+  })
+
+  it('ignores clicks that are not the Execute button', () => {
+    document.body.innerHTML = `
+      <div class="opblock">
+        <span class="opblock-summary-method">GET</span>
+        <span class="opblock-summary-path" data-path="/users"></span>
+        <button class="btn try-out__btn">Try it out</button>
+      </div>`
+    const seen: string[] = []
+    const stop = observeExecutions((id) => seen.push(id))
+    document.querySelector<HTMLButtonElement>('.try-out__btn')!.click()
+    expect(seen).toEqual([])
+    stop()
   })
 })

@@ -25,6 +25,7 @@ function mockAdapter(overrides: Partial<SwaggerAdapter> = {}): SwaggerAdapter {
     readExecutedResponses: () => [],
     listEndpoints: () => [],
     openEndpoint: (): Result<void> => ok(undefined),
+    onExecute: () => () => {},
     observe: () => () => {},
     ...overrides,
   }

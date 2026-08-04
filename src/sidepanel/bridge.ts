@@ -169,6 +169,9 @@ export class RemoteSwaggerAdapter implements SwaggerAdapter {
     void rpcResult('adapter.openEndpoint', endpointId)
     return ok(undefined)
   }
+  onExecute(): Unsubscribe {
+    return () => {} // clicks happen in the page; only the in-page agent sees them
+  }
   observe(cb: (change: SwaggerChange) => void): Unsubscribe {
     this.observers.add(cb)
     return () => this.observers.delete(cb)

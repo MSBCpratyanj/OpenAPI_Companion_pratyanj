@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { HistoryPanel, type HistoryPanelService } from './HistoryPanel'
 import type { HistoryEntry, HistoryRecord } from './types'
 import { EventBus } from '@/core/events'
@@ -56,6 +56,36 @@ describe('HistoryPanel', () => {
     await waitFor(() =>
       expect(service.list).toHaveBeenCalledWith({ method: 'get', text: undefined }),
     )
+  })
+
+  // Repeat calls to one endpoint are separate entries; the detail view lists them
+  // by time so they can be compared without closing the dialog.
+  it('offers Replay / Locate and a timeline of repeat calls in the detail view', async () => {
+    const second: HistoryEntry = { ...entry, id: 'h2', timestamp: 60_000, status: 500 }
+    const service = mockService({
+      list: vi.fn(async (): Promise<Result<HistoryEntry[]>> => ok([second, entry])),
+    })
+    render(<HistoryPanel service={service} bus={new EventBus()} />)
+    // Two rows now (one per call), so wait for the buttons rather than the path.
+    const rows = await screen.findAllByRole('button', { name: 'View post /users details' })
+    expect(rows).toHaveLength(2)
+
+    fireEvent.click(rows[1]!) // the older call → record h1
+    const dialog = await screen.findByRole('dialog', { name: 'Request detail' })
+    expect(dialog).toHaveTextContent('2 calls to this endpoint')
+
+    // Acting directly from the detail view, no ⋮ menu needed.
+    fireEvent.click(screen.getByRole('button', { name: /Replay/ }))
+    expect(service.replay).toHaveBeenCalledWith('h1')
+
+    fireEvent.click(screen.getByRole('button', { name: /Locate in Swagger/ }))
+    expect(service.locate).toHaveBeenCalledWith('post /users')
+
+    // Picking another call loads that record into the same inspector.
+    ;(service.get as ReturnType<typeof vi.fn>).mockClear()
+    const timeline = within(screen.getByRole('list', { name: 'Calls to this endpoint' }))
+    fireEvent.click(timeline.getAllByRole('button')[0]!) // the newest call, h2
+    await waitFor(() => expect(service.get).toHaveBeenCalledWith('h2'))
   })
 
   it('wraps long body lines by default, and the toggle survives a tab switch', async () => {

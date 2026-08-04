@@ -44,6 +44,7 @@ function mockAdapter(over: Partial<SwaggerAdapter> = {}): MockAdapter {
     readExecutedResponses: () => [],
     listEndpoints: () => ENDPOINTS,
     openEndpoint,
+    onExecute: () => () => {},
     observe: () => () => {},
     ...over,
   }

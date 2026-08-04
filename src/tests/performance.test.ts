@@ -45,6 +45,7 @@ function bigAdapter(count: number): SwaggerAdapter {
     readExecutedResponses: () => [],
     listEndpoints: () => endpoints,
     openEndpoint: (): Result<void> => ok(undefined),
+    onExecute: () => () => {},
     observe: () => () => {},
   }
 }

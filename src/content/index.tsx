@@ -204,6 +204,10 @@ async function boot(): Promise<void> {
     }, 250)
   }
 
+  // An Execute click means a NEW call, so history must not treat an identical
+  // response as a duplicate re-read (that silently lost repeat calls).
+  adapter.onExecute((endpointId) => history.noticeExecution(endpointId))
+
   adapter.observe(() => {
     requests.autosaveOpen(currentEnv)
     history.scheduleCapture(currentEnv)

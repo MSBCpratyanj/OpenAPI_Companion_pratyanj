@@ -25,6 +25,7 @@ function mockAdapter(open: RequestSnapshot[]) {
     readExecutedResponses: () => [],
     listEndpoints: () => [],
     openEndpoint: (): Result<void> => ok(undefined),
+    onExecute: () => () => {},
     observe: () => () => {},
   }
   return { adapter, written }

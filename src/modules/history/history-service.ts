@@ -115,6 +115,15 @@ export class HistoryService {
     return ok(full)
   }
 
+  /**
+   * An Execute click happened for this operation, so the next captured response
+   * is a NEW call — drop the remembered signature so an identical result still
+   * gets recorded. Without this, calling the same endpoint twice recorded once.
+   */
+  noticeExecution(endpointId: string): void {
+    this.lastSignature.delete(endpointId)
+  }
+
   /** Debounced capture of executed responses currently rendered in Swagger. */
   scheduleCapture(environmentId: string): void {
     if (this.captureTimer) clearTimeout(this.captureTimer)
@@ -125,7 +134,9 @@ export class HistoryService {
     let recorded = 0
     for (const res of this.adapter.readExecutedResponses()) {
       const signature = `${res.status}:${res.responseBody ?? ''}`
-      if (this.lastSignature.get(res.endpointId) === signature) continue // already recorded
+      // Same signature ⇒ we already recorded THIS rendered response. A repeat
+      // call clears the entry first (see `noticeExecution`), so it isn't lost.
+      if (this.lastSignature.get(res.endpointId) === signature) continue
       this.lastSignature.set(res.endpointId, signature)
       const result = await this.record({
         endpointId: res.endpointId,

@@ -24,6 +24,7 @@ function mockAdapter(over: Partial<SwaggerAdapter> = {}): SwaggerAdapter {
     readExecutedResponses: () => [],
     listEndpoints: () => [],
     openEndpoint: (): Result<void> => ok(undefined),
+    onExecute: () => () => {},
     observe: () => () => {},
     ...over,
   }
@@ -103,6 +104,33 @@ describe('HistoryService', () => {
 
     const list = await service.list()
     expect(list.ok && list.value).toHaveLength(1)
+  })
+
+  // Regression: capture is DOM-driven and re-fires on unrelated mutations, so it
+  // de-dupes by response content — which silently DROPPED a genuine second call
+  // that returned the same result. An Execute click now invalidates that guard.
+  it('records a repeat call with an identical response after an Execute click', async () => {
+    const executed = [
+      {
+        endpointId: 'get /ping',
+        method: 'get',
+        endpoint: '/ping',
+        status: 200,
+        responseBody: 'pong',
+      },
+    ]
+    const { service } = setup(mockAdapter({ readExecutedResponses: () => executed }))
+
+    expect(await service.captureExecuted('default')).toEqual({ ok: true, value: 1 })
+    // Re-reads of the same rendered response are still ignored…
+    expect(await service.captureExecuted('default')).toEqual({ ok: true, value: 0 })
+
+    // …but clicking Execute again means a new call, even with the same output.
+    service.noticeExecution('get /ping')
+    expect(await service.captureExecuted('default')).toEqual({ ok: true, value: 1 })
+
+    const list = await service.list()
+    expect(list.ok && list.value).toHaveLength(2)
   })
 
   it('searches and filters history', async () => {

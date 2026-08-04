@@ -92,4 +92,11 @@ export interface SwaggerAdapter {
   /** Expand an operation and scroll it into view, without executing it. */
   openEndpoint(endpointId: string): Result<void>
   observe(cb: (change: SwaggerChange) => void): Unsubscribe
+
+  /**
+   * Notify on each **Execute** click (including the one `replay` performs).
+   * History capture needs this to tell a repeat call apart from a re-read of the
+   * same rendered response — see `observeExecutions`.
+   */
+  onExecute(cb: (endpointId: string) => void): Unsubscribe
 }

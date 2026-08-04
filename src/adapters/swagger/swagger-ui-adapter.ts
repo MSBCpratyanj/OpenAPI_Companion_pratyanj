@@ -8,7 +8,13 @@ import type {
   SwaggerAdapter,
   SwaggerChange,
 } from '../types'
-import { autoExecute, isBodyEmpty, readOpenRequests, writeRequestBody } from './swagger-request-dom'
+import {
+  autoExecute,
+  isBodyEmpty,
+  readOpenRequests,
+  writeRequestBody,
+  observeExecutions,
+} from './swagger-request-dom'
 import { readExecutedResponses } from './swagger-response-dom'
 import { listEndpoints, openEndpoint } from './swagger-endpoint-dom'
 
@@ -111,6 +117,10 @@ export class SwaggerUiAdapter implements SwaggerAdapter {
       message: `No open operation matching "${endpointId}"`,
       recoverable: true,
     }
+  }
+
+  onExecute(cb: (endpointId: string) => void): Unsubscribe {
+    return observeExecutions(cb)
   }
 
   observe(cb: (change: SwaggerChange) => void): Unsubscribe {

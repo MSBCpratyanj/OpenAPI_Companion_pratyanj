@@ -27,6 +27,7 @@ function mockAdapter(responses: () => ExecutedResponse[]): SwaggerAdapter {
     readExecutedResponses: responses,
     listEndpoints: () => [],
     openEndpoint: (): Result<void> => ok(undefined),
+    onExecute: () => () => {},
     observe: () => () => {},
   }
 }
