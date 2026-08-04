@@ -166,4 +166,46 @@ describe('ProductivityService.generateCode', () => {
     expect(curl.value).toContain("-H 'Authorization: Bearer TKN'")
     expect(curl.value).toContain(`-d '{"a":1}'`)
   })
+
+  // The active environment's Base URL drives generated code (env baseUrl is
+  // otherwise a write-only field). Passed as a getter so a switch or an edit
+  // applies without rebuilding the service.
+  it('re-reads a base-URL getter on every call, so switching environment applies', () => {
+    const adapter = mockAdapter({
+      readOpenRequests: () => [{ endpointId: 'post /users', method: 'post' }],
+    })
+    const storage = new StorageService({ area: createFakeArea(), now: () => NOW })
+    let base = 'https://local.example'
+    const service = new ProductivityService({
+      adapter,
+      storage,
+      projectId: 'p1',
+      now: () => NOW,
+      baseUrl: () => base,
+    })
+
+    const first = service.generateCode('curl', 'post /users')
+    expect(first.ok && first.value).toContain("'https://local.example/users'")
+
+    base = 'https://qa.example' // e.g. the user switched to the QA environment
+    const second = service.generateCode('curl', 'post /users')
+    expect(second.ok && second.value).toContain("'https://qa.example/users'")
+  })
+
+  it('trims a trailing slash so the path does not double up', () => {
+    const adapter = mockAdapter({
+      readOpenRequests: () => [{ endpointId: 'post /users', method: 'post' }],
+    })
+    const storage = new StorageService({ area: createFakeArea(), now: () => NOW })
+    const service = new ProductivityService({
+      adapter,
+      storage,
+      projectId: 'p1',
+      now: () => NOW,
+      baseUrl: () => 'https://qa.example/',
+    })
+    const curl = service.generateCode('curl', 'post /users')
+    expect(curl.ok && curl.value).toContain("'https://qa.example/users'")
+    expect(curl.ok && curl.value).not.toContain('example//users')
+  })
 })

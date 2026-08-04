@@ -189,6 +189,12 @@ export function EnvironmentsPanel({ service, bus }: EnvironmentsPanelProps) {
           aria-label="Base URL"
           className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         />
+        {/* Says what it does — and, just as importantly, what it doesn't: Swagger
+            executes against the server declared in the spec, not this value. */}
+        <p className="px-1 text-[10px] leading-snug text-muted">
+          Used for copied code (cURL / Fetch / Axios). Swagger&apos;s own Execute still calls the
+          server from the spec.
+        </p>
         {vars.map((row, i) => (
           <div key={i} className="flex gap-1">
             <input

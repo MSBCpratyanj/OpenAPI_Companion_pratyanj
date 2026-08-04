@@ -20,8 +20,12 @@ export interface ProductivityServiceOptions {
   now?: () => number
   /** Max recent endpoints kept (ring buffer). */
   maxRecents?: number
-  /** Base URL for generated code; defaults to the page origin. */
-  baseUrl?: string
+  /**
+   * Base URL for generated code; defaults to the page origin. Pass a function to
+   * have it re-read on every call — that's how the active environment's Base URL
+   * takes effect immediately after a switch or an edit.
+   */
+  baseUrl?: string | (() => string)
 }
 
 const DEFAULT_MAX_RECENTS = 10
@@ -40,7 +44,7 @@ export class ProductivityService {
   private readonly bus: EventBus | undefined
   private readonly now: () => number
   private readonly maxRecents: number
-  private readonly baseUrl: string
+  private readonly resolveBaseUrl: () => string
 
   private favorites = new Map<string, FavoriteEntry>()
   private recents: RecentEntry[] = []
@@ -52,7 +56,10 @@ export class ProductivityService {
     this.bus = options.bus
     this.now = options.now ?? (() => Date.now())
     this.maxRecents = options.maxRecents ?? DEFAULT_MAX_RECENTS
-    this.baseUrl = options.baseUrl ?? (typeof location !== 'undefined' ? location.origin : '')
+    const pageOrigin = typeof location !== 'undefined' ? location.origin : ''
+    const configured = options.baseUrl
+    this.resolveBaseUrl =
+      typeof configured === 'function' ? configured : () => configured ?? pageOrigin
   }
 
   private favKey(): string {
@@ -194,7 +201,8 @@ export class ProductivityService {
 
     return {
       method: resolved.method,
-      url: `${this.baseUrl}${resolved.path}`,
+      // Trailing slash trimmed so "https://qa.example/" + "/users" isn't "//users".
+      url: `${this.resolveBaseUrl().replace(/\/+$/, '')}${resolved.path}`,
       headers,
       body: body || undefined,
     }

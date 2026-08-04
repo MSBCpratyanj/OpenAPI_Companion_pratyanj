@@ -71,6 +71,21 @@ async function boot(): Promise<void> {
 
   mountLauncher() // floating button to open the panel from the page
 
+  const auth = new AuthenticationService({ storage, adapter, projectId: meta.id, bus })
+  const requests = new RequestService({ storage, adapter, projectId: meta.id, bus })
+  const environments = new EnvironmentService({ storage, projectId: meta.id, bus })
+  const history = new HistoryService({ storage, adapter, projectId: meta.id, bus })
+
+  let currentEnv = meta.lastActiveEnvId
+
+  // Active environment's Base URL, kept in sync for code generation (below).
+  let envBaseUrl = ''
+  const refreshEnvBaseUrl = async (): Promise<void> => {
+    const env = await environments.get(currentEnv)
+    envBaseUrl = env.ok && env.value ? env.value.baseUrl.trim() : ''
+  }
+  await refreshEnvBaseUrl()
+
   // Endpoint search runs IN THE PAGE (top-centered overlay) — the panel is too
   // narrow for it and can't draw over the doc. Triggered by ⌘K here, or by the
   // panel's search button over RPC.
@@ -79,7 +94,11 @@ async function boot(): Promise<void> {
     storage,
     projectId: meta.id,
     bus,
-    baseUrl: location.origin,
+    // Generated code (copy as cURL/fetch/axios) targets the ACTIVE environment's
+    // Base URL when one is set, else this page's origin. Read per call, so a
+    // switch or an edit takes effect without rebuilding the service. (Swagger's
+    // own Execute still goes to the spec's server — that part isn't ours.)
+    baseUrl: () => envBaseUrl || location.origin,
   })
   await productivity.init()
 
@@ -130,13 +149,6 @@ async function boot(): Promise<void> {
     },
     true,
   )
-
-  const auth = new AuthenticationService({ storage, adapter, projectId: meta.id, bus })
-  const requests = new RequestService({ storage, adapter, projectId: meta.id, bus })
-  const environments = new EnvironmentService({ storage, projectId: meta.id, bus })
-  const history = new HistoryService({ storage, adapter, projectId: meta.id, bus })
-
-  let currentEnv = meta.lastActiveEnvId
 
   // Token auto-refresh (opt-in; toggled from the Auth panel via RPC → runs here).
   let autoRefreshEnabled = await auth.isAutoRefreshEnabled()
@@ -204,6 +216,7 @@ async function boot(): Promise<void> {
   bus.subscribe('ENVIRONMENT_CHANGED', (payload) => {
     void (async () => {
       currentEnv = payload.environmentId
+      await refreshEnvBaseUrl()
       stopAuthWatch()
       const restored = await auth.restore(currentEnv)
       if (restored.ok && restored.value == null) adapter.clearAuth()
@@ -240,8 +253,11 @@ async function boot(): Promise<void> {
     'environments.getActiveId': () => environments.getActiveId(),
     'environments.switch': ([id]) => environments.switch(id as string),
     'environments.create': ([input]) => environments.create(input as EnvironmentInput),
-    'environments.update': ([id, patch]) =>
-      environments.update(id as string, patch as Partial<EnvironmentInput>),
+    'environments.update': async ([id, patch]) => {
+      const updated = await environments.update(id as string, patch as Partial<EnvironmentInput>)
+      await refreshEnvBaseUrl() // update() publishes no event; Base URL may have changed
+      return updated
+    },
     'environments.delete': ([id]) => environments.delete(id as string),
     'adapter.writeRequest': ([id, data]) =>
       adapter.writeRequest(id as string, data as RequestSnapshot),
