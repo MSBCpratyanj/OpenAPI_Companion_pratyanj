@@ -248,6 +248,10 @@ async function boot(): Promise<void> {
     'auth.clear': ([env]) => auth.clear(env as string),
     'auth.isAutoRefreshEnabled': () => auth.isAutoRefreshEnabled(),
     'auth.setAutoRefreshEnabled': ([on]) => auth.setAutoRefreshEnabled(on as boolean),
+    'auth.listSaved': () => auth.listSaved(),
+    'auth.saveAs': ([name, env]) => auth.saveAs(name as string, env as string),
+    'auth.activateSaved': ([id, env]) => auth.activateSaved(id as string, env as string),
+    'auth.deleteSaved': ([id]) => auth.deleteSaved(id as string),
     'requests.listTemplates': () => requests.listTemplates(),
     'requests.saveOpenAsTemplate': ([name, env]) =>
       requests.saveOpenAsTemplate(name as string, env as string),

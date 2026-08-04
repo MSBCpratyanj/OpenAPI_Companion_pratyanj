@@ -33,6 +33,10 @@ function services() {
       clear: okAsync(),
       isAutoRefreshEnabled: vi.fn(async () => false),
       setAutoRefreshEnabled: okAsync(),
+      listSaved: okAsync([]),
+      saveAs: okAsync({}),
+      activateSaved: okAsync({}),
+      deleteSaved: okAsync(),
     } as any,
     requestService: {
       listTemplates: okAsync([]),

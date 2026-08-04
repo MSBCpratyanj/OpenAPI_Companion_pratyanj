@@ -1,9 +1,10 @@
 import { ok, err, type Result, type AppError, type Unsubscribe } from '@/types'
 import { projectKey, settingsKey, type StorageService } from '@/core/storage'
+import { stableId } from '@/utils'
 import type { EventBus } from '@/core/events'
 import type { SwaggerAdapter, AuthSnapshot } from '@/adapters'
 import { decodeJwtExpiryMs, isJwt } from '@/utils'
-import { SUPPORTED_AUTH_TYPES, type AuthRecord, type AuthType } from './types'
+import { SUPPORTED_AUTH_TYPES, type AuthRecord, type AuthType, type SavedCredential } from './types'
 
 export interface AuthenticationServiceOptions {
   storage: StorageService
@@ -49,6 +50,15 @@ export class AuthenticationService {
 
   private key(environmentId: string): string {
     return projectKey(this.projectId, 'authentication', environmentId)
+  }
+
+  /** Named credentials live per PROJECT, independent of the active environment. */
+  private vaultKey(id: string): string {
+    return projectKey(this.projectId, 'auth-vault', id)
+  }
+
+  private vaultPrefix(): string {
+    return projectKey(this.projectId, 'auth-vault', '')
   }
 
   /** Global opt-in for auto token refresh (default off). */
@@ -204,5 +214,94 @@ export class AuthenticationService {
 
   private expiryOf(token: string): number | null {
     return isJwt(token) ? decodeJwtExpiryMs(token) : null
+  }
+
+  // --- Named credential vault ------------------------------------------------
+
+  /** Saved credentials for this project, newest first. */
+  async listSaved(): Promise<Result<SavedCredential[]>> {
+    const keys = await this.storage.list(this.vaultPrefix())
+    if (!keys.ok) return keys
+    const saved: SavedCredential[] = []
+    for (const key of keys.value) {
+      const got = await this.storage.getData<SavedCredential>(key)
+      if (got.ok && got.value) saved.push(got.value)
+    }
+    saved.sort((a, b) => b.createdAt - a.createdAt)
+    return ok(saved)
+  }
+
+  /**
+   * Save the credential currently authorized in Swagger under `name`. Falls back
+   * to the environment's stored record when Swagger's own state isn't readable
+   * (e.g. the page hasn't finished loading its spec).
+   *
+   * The id is derived from the name, so saving the same name twice updates that
+   * entry instead of quietly creating a second one with identical labels.
+   */
+  async saveAs(name: string, environmentId: string): Promise<Result<SavedCredential>> {
+    const label = name.trim()
+    if (!label) return err(authWriteError(new Error('A name is required')))
+
+    const snapshot = this.adapter.readAuth()
+    let type: AuthType
+    let token: string
+    let schemeName: string | undefined
+
+    if (snapshot?.token) {
+      type = this.refineType(snapshot)
+      token = snapshot.token
+      schemeName = snapshot.schemeName
+    } else {
+      const active = await this.current(environmentId)
+      if (!active.ok) return active
+      if (!active.value?.token) {
+        return err(authWriteError(new Error('Nothing is authorized yet')))
+      }
+      type = active.value.type
+      token = active.value.token
+      schemeName = active.value.schemeName
+    }
+
+    const credential: SavedCredential = {
+      id: stableId('cred', this.projectId, label),
+      name: label,
+      type,
+      token,
+      schemeName,
+      createdAt: this.now(),
+      expiresAt: this.expiryOf(token) ?? undefined,
+    }
+    const written = await this.storage.set(this.vaultKey(credential.id), credential, {
+      immediate: true,
+    })
+    if (!written.ok) return err(authWriteError(written.error.cause))
+    return ok(credential)
+  }
+
+  /** Make a saved credential the active one: inject it into Swagger and persist. */
+  async activateSaved(id: string, environmentId: string): Promise<Result<AuthRecord>> {
+    const got = await this.storage.getData<SavedCredential>(this.vaultKey(id))
+    if (!got.ok) return got
+    if (!got.value) return err(authWriteError(new Error(`No saved credential ${id}`)))
+    const credential = got.value
+
+    const record: AuthRecord = {
+      type: credential.type,
+      token: credential.token,
+      schemeName: credential.schemeName,
+      environmentId,
+      updatedAt: this.now(),
+      expiresAt: credential.expiresAt,
+    }
+    const injected = this.adapter.writeAuth(this.toSnapshot(record))
+    if (!injected.ok) return injected
+    const saved = await this.save(record)
+    return saved.ok ? ok(record) : saved
+  }
+
+  async deleteSaved(id: string): Promise<Result<void>> {
+    const removed = await this.storage.remove(this.vaultKey(id))
+    return removed.ok ? ok(undefined) : removed
   }
 }

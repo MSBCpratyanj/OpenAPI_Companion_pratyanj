@@ -215,3 +215,91 @@ describe('AuthenticationService', () => {
     expect(prod.ok && prod.value?.token).toBe('prod-tok')
   })
 })
+
+// Named credential vault (PO: "store multiple tokens with their name so they
+// don't need to change authorization every time they change account").
+describe('AuthenticationService credential vault', () => {
+  it('saves what Swagger currently holds under a name, and lists it', async () => {
+    const { service } = setup(
+      mockAdapter({ readAuth: () => ({ type: 'bearer', token: 'ADMIN_1' }) }),
+    )
+
+    const saved = await service.saveAs('Admin', 'default')
+    expect(saved.ok && saved.value.name).toBe('Admin')
+    expect(saved.ok && saved.value.token).toBe('ADMIN_1')
+
+    const list = await service.listSaved()
+    expect(list.ok && list.value.map((c) => c.name)).toEqual(['Admin'])
+  })
+
+  it('refuses a blank name and refuses when nothing is authorized', async () => {
+    const { service } = setup(mockAdapter({ readAuth: () => ({ type: 'bearer', token: 'T' }) }))
+    expect((await service.saveAs('   ', 'default')).ok).toBe(false)
+
+    const { service: empty } = setup(mockAdapter({ readAuth: () => null }))
+    expect((await empty.saveAs('Admin', 'default')).ok).toBe(false)
+  })
+
+  it('falls back to the stored record when Swagger is not readable yet', async () => {
+    const { service } = setup(mockAdapter({ readAuth: () => null }))
+    await service.save({
+      type: 'bearer',
+      token: 'FROM_STORE',
+      environmentId: 'default',
+      updatedAt: 0,
+    })
+    const saved = await service.saveAs('Manager', 'default')
+    expect(saved.ok && saved.value.token).toBe('FROM_STORE')
+  })
+
+  it('re-saving the same name updates that entry instead of duplicating it', async () => {
+    const adapter = mockAdapter({ readAuth: () => ({ type: 'bearer', token: 'FIRST' }) })
+    const { service } = setup(adapter)
+    await service.saveAs('Admin', 'default')
+
+    adapter.readAuth = () => ({ type: 'bearer', token: 'SECOND' })
+    await service.saveAs('Admin', 'default')
+
+    const list = await service.listSaved()
+    expect(list.ok && list.value).toHaveLength(1)
+    expect(list.ok && list.value[0]?.token).toBe('SECOND')
+  })
+
+  // The point of the feature: switching accounts must actually authorize Swagger,
+  // not just record a preference.
+  it('using a saved credential injects it into Swagger and becomes the active record', async () => {
+    const written: unknown[] = []
+    const adapter = mockAdapter({
+      readAuth: () => ({ type: 'bearer', token: 'ADMIN_1', schemeName: 'bearerAuth' }),
+      writeAuth: (auth) => {
+        written.push(auth)
+        return ok(undefined)
+      },
+    })
+    const { service } = setup(adapter)
+    const saved = await service.saveAs('Admin', 'default')
+    if (!saved.ok) throw new Error('save failed')
+
+    const used = await service.activateSaved(saved.value.id, 'default')
+    expect(used.ok && used.value.token).toBe('ADMIN_1')
+    expect(written).toEqual([{ type: 'bearer', token: 'ADMIN_1', schemeName: 'bearerAuth' }])
+
+    const active = await service.current('default')
+    expect(active.ok && active.value?.token).toBe('ADMIN_1')
+  })
+
+  it('reports a missing credential rather than clearing auth', async () => {
+    const { service } = setup(mockAdapter())
+    expect((await service.activateSaved('cred_nope', 'default')).ok).toBe(false)
+  })
+
+  it('deletes a saved credential', async () => {
+    const { service } = setup(mockAdapter({ readAuth: () => ({ type: 'bearer', token: 'T' }) }))
+    const saved = await service.saveAs('Admin', 'default')
+    if (!saved.ok) throw new Error('save failed')
+
+    expect((await service.deleteSaved(saved.value.id)).ok).toBe(true)
+    const list = await service.listSaved()
+    expect(list.ok && list.value).toEqual([])
+  })
+})

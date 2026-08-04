@@ -10,10 +10,11 @@ import {
   IconButton,
   Spinner,
   AuthIcon,
+  DeleteIcon,
   RevealIcon,
   HideIcon,
 } from '@/components'
-import type { AuthRecord } from './types'
+import type { AuthRecord, SavedCredential } from './types'
 import { authStatusOf } from './status'
 
 /** Just the surface AuthPanel needs from AuthenticationService (eases testing). */
@@ -22,6 +23,11 @@ export interface AuthPanelService {
   clear(environmentId: string): Promise<Result<void>>
   isAutoRefreshEnabled(): Promise<boolean>
   setAutoRefreshEnabled(enabled: boolean): Promise<Result<void>>
+  /** Named credential vault — switch accounts without re-authorizing. */
+  listSaved(): Promise<Result<SavedCredential[]>>
+  saveAs(name: string, environmentId: string): Promise<Result<SavedCredential>>
+  activateSaved(id: string, environmentId: string): Promise<Result<AuthRecord>>
+  deleteSaved(id: string): Promise<Result<void>>
 }
 
 interface AuthPanelProps {
@@ -40,12 +46,37 @@ export function AuthPanel({ service, bus, environmentId }: AuthPanelProps) {
   const [loading, setLoading] = useState(true)
   const [revealed, setRevealed] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(false)
+  const [saved, setSaved] = useState<SavedCredential[]>([])
+  const [newName, setNewName] = useState('')
 
   const load = useCallback(async () => {
-    const result = await service.current(environmentId)
+    const [result, vault] = await Promise.all([service.current(environmentId), service.listSaved()])
     setRecord(result.ok ? result.value : null)
+    if (vault.ok) setSaved(vault.value)
     setLoading(false)
   }, [service, environmentId])
+
+  const report = (result: Result<unknown>) => {
+    if (!result.ok) bus.publish('NOTIFY', { kind: 'error', message: result.error.message })
+    return result.ok
+  }
+
+  const saveCurrent = async () => {
+    const name = newName.trim()
+    if (!name) return
+    if (report(await service.saveAs(name, environmentId))) setNewName('')
+    await load()
+  }
+
+  const activate = async (id: string) => {
+    report(await service.activateSaved(id, environmentId))
+    await load()
+  }
+
+  const removeSaved = async (id: string) => {
+    report(await service.deleteSaved(id))
+    await load()
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -132,6 +163,73 @@ export function AuthPanel({ service, bus, environmentId }: AuthPanelProps) {
           message="Use Swagger's Authorize button — your credential is saved and restored automatically on refresh."
         />
       )}
+
+      <hr className="border-border" />
+
+      {/* Named credentials: switch accounts (admin / manager / read-only) without
+          re-authorizing in Swagger each time. */}
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium text-text">Saved tokens</span>
+
+        {saved.length === 0 ? (
+          <p className="text-[11px] text-muted">
+            Save the current token under a name, then switch between accounts with one click.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {saved.map((cred) => {
+              const active = record?.token === cred.token
+              const expired = cred.expiresAt != null && cred.expiresAt <= Date.now()
+              return (
+                <li
+                  key={cred.id}
+                  className={`flex items-center gap-2 rounded-md border px-2 py-1 ${
+                    active ? 'border-primary bg-surface' : 'border-border'
+                  }`}
+                >
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[11px] font-medium text-text">{cred.name}</span>
+                    <span className="truncate font-mono text-[10px] text-muted">
+                      {cred.type}
+                      {expired ? ' · expired' : ''}
+                    </span>
+                  </div>
+                  {active ? (
+                    <Badge kind="success">In use</Badge>
+                  ) : (
+                    <Button variant="secondary" onClick={() => void activate(cred.id)}>
+                      Use
+                    </Button>
+                  )}
+                  <CopyButton text={cred.token} label={`Copy ${cred.name}`} iconOnly />
+                  <IconButton
+                    label={`Delete ${cred.name}`}
+                    onClick={() => void removeSaved(cred.id)}
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
+        <div className="flex gap-1">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void saveCurrent()
+            }}
+            placeholder="Name (e.g. Admin)"
+            aria-label="Name for the current token"
+            className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          />
+          <Button variant="secondary" onClick={() => void saveCurrent()} disabled={!newName.trim()}>
+            Save current
+          </Button>
+        </div>
+      </div>
 
       <hr className="border-border" />
 

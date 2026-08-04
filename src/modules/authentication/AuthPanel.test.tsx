@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { AuthPanel, type AuthPanelService } from './AuthPanel'
-import type { AuthRecord } from './types'
+import type { AuthRecord, SavedCredential } from './types'
 import { EventBus } from '@/core/events'
 import { ok, type Result } from '@/types'
 
@@ -13,12 +13,24 @@ const authorized: AuthRecord = {
   updatedAt: 0,
 }
 
+const credential: SavedCredential = {
+  id: 'cred_admin',
+  name: 'Admin',
+  type: 'bearer',
+  token: 'admin_TOKEN_9999',
+  createdAt: 0,
+}
+
 function mockService(over: Partial<AuthPanelService> = {}): AuthPanelService {
   return {
     current: vi.fn(async (): Promise<Result<AuthRecord | null>> => ok(null)),
     clear: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
     isAutoRefreshEnabled: vi.fn(async () => false),
     setAutoRefreshEnabled: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
+    listSaved: vi.fn(async (): Promise<Result<SavedCredential[]>> => ok([])),
+    saveAs: vi.fn(async (): Promise<Result<SavedCredential>> => ok(credential)),
+    activateSaved: vi.fn(async (): Promise<Result<AuthRecord>> => ok(authorized)),
+    deleteSaved: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
     ...over,
   }
 }
@@ -105,5 +117,56 @@ describe('AuthPanel', () => {
     )
 
     await waitFor(() => expect(screen.getByText('Authorized')).toBeInTheDocument())
+  })
+
+  // Saved tokens: switch accounts without re-authorizing in Swagger.
+  it('saves the current token under a name', async () => {
+    const service = mockService({ current: vi.fn(async () => ok(authorized)) })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+    await screen.findByText('Authorized')
+
+    const input = screen.getByLabelText('Name for the current token')
+    fireEvent.change(input, { target: { value: 'Admin' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save current' }))
+
+    await waitFor(() => expect(service.saveAs).toHaveBeenCalledWith('Admin', 'default'))
+  })
+
+  it('lists saved tokens, marks the one in use, and switches to another', async () => {
+    const other: SavedCredential = {
+      id: 'cred_manager',
+      name: 'Manager',
+      type: 'bearer',
+      token: 'manager_TOKEN_1111',
+      createdAt: 0,
+    }
+    // `authorized.token` matches nothing in the vault, so neither is "in use"
+    // until we mark one — use a credential whose token IS the active one.
+    const active: SavedCredential = { ...credential, token: authorized.token }
+    const service = mockService({
+      current: vi.fn(async () => ok(authorized)),
+      listSaved: vi.fn(async () => ok([active, other])),
+    })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+
+    expect(await screen.findByText('Admin')).toBeInTheDocument()
+    expect(screen.getByText('Manager')).toBeInTheDocument()
+    // The saved credential matching the active token is flagged, not offered.
+    expect(screen.getByText('In use')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use' }))
+    await waitFor(() =>
+      expect(service.activateSaved).toHaveBeenCalledWith('cred_manager', 'default'),
+    )
+  })
+
+  it('deletes a saved token', async () => {
+    const service = mockService({
+      current: vi.fn(async () => ok(authorized)),
+      listSaved: vi.fn(async () => ok([credential])),
+    })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Admin' }))
+    await waitFor(() => expect(service.deleteSaved).toHaveBeenCalledWith('cred_admin'))
   })
 })
