@@ -67,7 +67,9 @@ async function boot(): Promise<void> {
     )
     return
   }
-  console.info(`${LOG} agent ready — project "${meta.name}" (${meta.id}). Open the side panel.`)
+  console.info(
+    `${LOG} agent ready — project "${meta.name}" (${meta.id}), build ${__BUILD_ID__}. Open the side panel.`,
+  )
 
   mountLauncher() // floating button to open the panel from the page
 
@@ -183,6 +185,7 @@ async function boot(): Promise<void> {
       docType: meta.docType,
       environmentId: currentEnv,
       pageOrigin: location.origin,
+      buildId: __BUILD_ID__,
     }
     const adapterState: AdapterReadState = {
       detect: adapter.detect(),

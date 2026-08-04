@@ -81,6 +81,16 @@ async function render(root: Root): Promise<void> {
   }
 
   const ctx = state.context
+
+  // The tab answered, but from an older injection than this panel: newer RPC
+  // methods don't exist there, so features would silently do nothing. Say so
+  // rather than letting the user conclude the feature is broken.
+  const staleTab = ctx.buildId !== __BUILD_ID__
+  if (staleTab) {
+    console.warn(
+      `[OpenAPI Companion] this tab runs build ${ctx.buildId}, the panel is ${__BUILD_ID__}.`,
+    )
+  }
   const storage = new StorageService({ area: chromeLocalArea() })
   const bus = new EventBus()
   startBridge(bus)
@@ -109,6 +119,7 @@ async function render(root: Root): Promise<void> {
         theme={theme}
         bus={bus}
         environmentId={ctx.environmentId}
+        staleTab={staleTab}
         onOpenPalette={openPagePalette}
         authService={createRemoteAuthService()}
         requestService={createRemoteRequestService()}

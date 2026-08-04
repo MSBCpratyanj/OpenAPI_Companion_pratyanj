@@ -40,6 +40,8 @@ export interface PanelShellProps {
   environmentId: string
   /** Opens the palette in the PAGE (see `openPagePalette`) — not in this column. */
   onOpenPalette: () => void
+  /** The page is running an older build of the agent; it needs a refresh. */
+  staleTab?: boolean
   authService: AuthPanelService
   requestService: RequestPanelService
   environmentService: EnvironmentPanelService
@@ -62,6 +64,7 @@ export function PanelShell({
   bus,
   environmentId,
   onOpenPalette,
+  staleTab = false,
   ...services
 }: PanelShellProps) {
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
@@ -98,6 +101,16 @@ export function PanelShell({
           </IconButton>
         </div>
       </header>
+
+      {staleTab ? (
+        <p
+          role="status"
+          className="border-b border-warning bg-warning/10 px-3 py-2 text-[11px] leading-snug text-warning"
+        >
+          This tab is running an older build of the extension, so newer actions won&apos;t work.
+          Refresh the page (⌘⇧R / Ctrl+Shift+R).
+        </p>
+      ) : null}
 
       <nav className="border-b border-border px-2 py-2">
         <Tabs tabs={TABS} activeId={activeTab} onChange={setActiveTab} />

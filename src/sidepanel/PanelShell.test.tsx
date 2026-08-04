@@ -84,7 +84,7 @@ function services() {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-async function setup() {
+async function setup(over: { staleTab?: boolean } = {}) {
   const storage = new StorageService({ area: createFakeArea(), now: () => 0 })
   const theme = new ThemeManager({
     storage,
@@ -101,6 +101,7 @@ async function setup() {
       bus={bus}
       environmentId="default"
       onOpenPalette={onOpenPalette}
+      staleTab={over.staleTab}
       {...services()}
     />,
   )
@@ -134,5 +135,17 @@ describe('PanelShell (native side panel)', () => {
     const { onOpenPalette } = await setup()
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
     expect(onOpenPalette).toHaveBeenCalledTimes(1)
+  })
+
+  // Reloading the extension leaves old content scripts in open tabs, where newer
+  // RPC methods don't exist — the panel must say so, not fail silently.
+  it('warns when the page is running an older build', async () => {
+    await setup({ staleTab: true })
+    expect(screen.getByRole('status')).toHaveTextContent('older build of the extension')
+  })
+
+  it('shows no warning when the builds match', async () => {
+    await setup()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })

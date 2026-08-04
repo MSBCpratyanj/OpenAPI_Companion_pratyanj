@@ -22,6 +22,12 @@ export interface PanelContext {
   environmentId: string
   /** The Swagger page's origin — used as the base URL for generated code. */
   pageOrigin: string
+  /**
+   * Build stamp of the content script answering. If it differs from the panel's
+   * own, this tab is still running an older injection and needs a refresh —
+   * otherwise newer RPC methods simply fail and the UI looks broken.
+   */
+  buildId: string
 }
 
 // --- Adapter read-snapshot (mirrors the SwaggerAdapter's sync reads) --------
