@@ -158,6 +158,7 @@ async function boot(): Promise<void> {
     adapter,
     auth,
     templates: requests,
+    vault: auth, // its activeLogin() targets the account actually in use
     bus,
     enabled: () => autoRefreshEnabled,
   })
@@ -251,10 +252,26 @@ async function boot(): Promise<void> {
     'auth.clear': ([env]) => auth.clear(env as string),
     'auth.isAutoRefreshEnabled': () => auth.isAutoRefreshEnabled(),
     'auth.setAutoRefreshEnabled': ([on]) => auth.setAutoRefreshEnabled(on as boolean),
+    'auth.loginEndpoint': () => tokenRefresh.findLoginEndpoint(),
+    'auth.refreshActivity': () => tokenRefresh.recentActivity(),
+    // Add an account: log in with the given credentials, then keep the issued
+    // token under `name` with those credentials attached for later refreshes.
+    'auth.addByLogin': async ([name, username, password]) => {
+      const login = { username: username as string, password: password as string }
+      const signedIn = await tokenRefresh.signIn(login)
+      if (!signedIn.ok) return signedIn
+      return auth.addCredential(name as string, signedIn.value, login)
+    },
+    'auth.refreshNow': ([env]) => tokenRefresh.refreshNow(env as string),
+    'auth.activeCredentialName': ([env]) => auth.activeCredentialName(env as string),
+    'auth.loginTemplate': ([env]) =>
+      tokenRefresh.findLoginTemplate(env as string).then((t) => t?.name ?? null),
     'auth.listSaved': () => auth.listSaved(),
     'auth.saveAs': ([name, env]) => auth.saveAs(name as string, env as string),
     'auth.activateSaved': ([id, env]) => auth.activateSaved(id as string, env as string),
     'auth.deleteSaved': ([id]) => auth.deleteSaved(id as string),
+    'auth.setLogin': ([id, login]) =>
+      auth.setLogin(id as string, login as Parameters<typeof auth.setLogin>[1]),
     'requests.listTemplates': () => requests.listTemplates(),
     'requests.saveOpenAsTemplate': ([name, env]) =>
       requests.saveOpenAsTemplate(name as string, env as string),

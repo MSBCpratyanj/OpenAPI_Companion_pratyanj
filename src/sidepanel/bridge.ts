@@ -186,10 +186,17 @@ export function createRemoteAuthService(): AuthPanelService {
     clear: (env) => rpcResult('auth.clear', env),
     isAutoRefreshEnabled: () => rpcValue('auth.isAutoRefreshEnabled', false),
     setAutoRefreshEnabled: (on) => rpcResult('auth.setAutoRefreshEnabled', on),
+    loginEndpoint: () => rpcValue('auth.loginEndpoint', null),
+    refreshActivity: () => rpcValue('auth.refreshActivity', []),
+    addByLogin: (name, username, password) =>
+      rpcResult('auth.addByLogin', name, username, password),
+    refreshNow: (env) => rpcResult('auth.refreshNow', env),
+    loginTemplate: (env) => rpcValue('auth.loginTemplate', null, env),
     listSaved: () => rpcResult('auth.listSaved'),
     saveAs: (name, env) => rpcResult('auth.saveAs', name, env),
     activateSaved: (id, env) => rpcResult('auth.activateSaved', id, env),
     deleteSaved: (id) => rpcResult('auth.deleteSaved', id),
+    setLogin: (id, login) => rpcResult('auth.setLogin', id, login),
   }
 }
 

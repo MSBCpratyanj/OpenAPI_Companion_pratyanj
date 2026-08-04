@@ -27,10 +27,16 @@ function mockService(over: Partial<AuthPanelService> = {}): AuthPanelService {
     clear: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
     isAutoRefreshEnabled: vi.fn(async () => false),
     setAutoRefreshEnabled: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
+    addByLogin: vi.fn(async (): Promise<Result<SavedCredential>> => ok(credential)),
+    refreshActivity: vi.fn(async () => []),
+    refreshNow: vi.fn(async (): Promise<Result<boolean>> => ok(true)),
+    loginEndpoint: vi.fn(async () => 'post /auth/login'),
+    loginTemplate: vi.fn(async () => null),
     listSaved: vi.fn(async (): Promise<Result<SavedCredential[]>> => ok([])),
     saveAs: vi.fn(async (): Promise<Result<SavedCredential>> => ok(credential)),
     activateSaved: vi.fn(async (): Promise<Result<AuthRecord>> => ok(authorized)),
     deleteSaved: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
+    setLogin: vi.fn(async (): Promise<Result<SavedCredential>> => ok(credential)),
     ...over,
   }
 }
@@ -168,5 +174,134 @@ describe('AuthPanel', () => {
     render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
     fireEvent.click(await screen.findByRole('button', { name: 'Delete Admin' }))
     await waitFor(() => expect(service.deleteSaved).toHaveBeenCalledWith('cred_admin'))
+  })
+
+  // An enabled toggle with no saved login request does nothing at all — the panel
+  // has to say so instead of looking functional.
+  it('warns when auto-refresh is on but no login request is saved', async () => {
+    const service = mockService({
+      current: vi.fn(async () => ok(authorized)),
+      isAutoRefreshEnabled: vi.fn(async () => true),
+      loginTemplate: vi.fn(async () => null),
+    })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+    expect(await screen.findByText(/No saved login request found/)).toBeInTheDocument()
+  })
+
+  it('names the request it will re-run once one is saved', async () => {
+    const service = mockService({
+      current: vi.fn(async () => ok(authorized)),
+      isAutoRefreshEnabled: vi.fn(async () => true),
+      loginTemplate: vi.fn(async () => 'Login'),
+    })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+    expect(await screen.findByText(/Will re-run your saved request/)).toBeInTheDocument()
+  })
+
+  // The prerequisite isn't guessable, so the steps ship inside the panel.
+  it('explains the setup and can jump to the Requests tab', async () => {
+    const onNavigate = vi.fn()
+    render(
+      <AuthPanel
+        service={mockService({ current: vi.fn(async () => ok(authorized)) })}
+        bus={new EventBus()}
+        environmentId="default"
+        onNavigate={onNavigate}
+      />,
+    )
+    expect(await screen.findByText('How to set this up')).toBeInTheDocument()
+    expect(screen.getByText(/save it as a template/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Requests tab' }))
+    expect(onNavigate).toHaveBeenCalledWith('requests')
+  })
+
+  // Each saved token can carry its own login, so the right account is refreshed
+  // when several are stored.
+  it('attaches a login to a saved token', async () => {
+    const service = mockService({
+      current: vi.fn(async () => ok(authorized)),
+      listSaved: vi.fn(async () => ok([credential])),
+    })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add login for Admin' }))
+    // Only the two things the user actually knows — no URL, no field names.
+    fireEvent.change(screen.getByLabelText('Email for Admin'), {
+      target: { value: 'admin@acme.io' },
+    })
+    fireEvent.change(screen.getByLabelText('Password for Admin'), {
+      target: { value: 'secret' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save login' }))
+
+    await waitFor(() =>
+      expect(service.setLogin).toHaveBeenCalledWith('cred_admin', {
+        username: 'admin@acme.io',
+        password: 'secret',
+      }),
+    )
+  })
+
+  it('says the password is kept out of backups', async () => {
+    const service = mockService({
+      current: vi.fn(async () => ok(authorized)),
+      listSaved: vi.fn(async () => ok([credential])),
+    })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add login for Admin' }))
+    expect(screen.getByText(/left out of backups/)).toBeInTheDocument()
+  })
+
+  // Visibility: the user must be able to see the flow run, not infer it.
+  it('shows recent refresh activity and can trigger it on demand', async () => {
+    const service = mockService({
+      current: vi.fn(async () => ok(authorized)),
+      isAutoRefreshEnabled: vi.fn(async () => true),
+      refreshActivity: vi.fn(async () => [
+        { at: 0, outcome: 'success' as const, message: 'New token stored and applied (abc123)' },
+        { at: 0, outcome: 'triggered' as const, message: '401 on GET /approvals/limits/' },
+      ]),
+    })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+
+    const log = await screen.findByRole('list', { name: 'Refresh activity' })
+    expect(log).toHaveTextContent('401 on GET /approvals/limits/')
+    expect(log).toHaveTextContent('New token stored and applied')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
+    await waitFor(() => expect(service.refreshNow).toHaveBeenCalledWith('default'))
+  })
+
+  // Add an account without authorizing in Swagger first: name + credentials in,
+  // token fetched and stored automatically.
+  it('signs in and saves a new named token from just a name, email and password', async () => {
+    const service = mockService({ current: vi.fn(async () => ok(authorized)) })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Add account with email/ }))
+    fireEvent.change(screen.getByLabelText('New account name'), { target: { value: 'Admin' } })
+    fireEvent.change(screen.getByLabelText('New account email'), {
+      target: { value: 'admin@acme.io' },
+    })
+    fireEvent.change(screen.getByLabelText('New account password'), {
+      target: { value: 'secret' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in & save' }))
+
+    await waitFor(() =>
+      expect(service.addByLogin).toHaveBeenCalledWith('Admin', 'admin@acme.io', 'secret'),
+    )
+    // The form closes and the list reloads, so the new token shows up.
+    await waitFor(() => expect(service.listSaved).toHaveBeenCalled())
+  })
+
+  it('will not submit a half-filled account', async () => {
+    const service = mockService({ current: vi.fn(async () => ok(authorized)) })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+    fireEvent.click(await screen.findByRole('button', { name: /Add account with email/ }))
+    fireEvent.change(screen.getByLabelText('New account name'), { target: { value: 'Admin' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in & save' }))
+    expect(service.addByLogin).not.toHaveBeenCalled()
   })
 })

@@ -302,4 +302,46 @@ describe('AuthenticationService credential vault', () => {
     const list = await service.listSaved()
     expect(list.ok && list.value).toEqual([])
   })
+
+  // Regression: the active credential was inferred by comparing tokens, which
+  // stopped matching whenever Swagger handed the token back in another form — so
+  // refresh reported "no credentials saved" for an account that had them.
+  it('remembers which credential is in use, independently of the token value', async () => {
+    const adapter = mockAdapter({ readAuth: () => ({ type: 'bearer', token: 'DEV_1' }) })
+    const { service } = setup(adapter)
+
+    const dev = await service.saveAs('dev', 'default')
+    if (!dev.ok) throw new Error('save failed')
+    await service.setLogin(dev.value.id, { username: 'dev@acme.io', password: 'p1' })
+
+    // Swagger now reports a differently-formatted token (scheme prefix), and the
+    // stored record is updated from the page — token equality would fail here.
+    await service.save({
+      type: 'bearer',
+      token: 'Bearer DEV_1',
+      environmentId: 'default',
+      updatedAt: 0,
+    })
+
+    const login = await service.activeLogin('default')
+    expect(login).toMatchObject({ credentialId: dev.value.id, username: 'dev@acme.io' })
+    expect(await service.activeCredentialName('default')).toBe('dev')
+  })
+
+  it('refreshing one credential leaves the others untouched', async () => {
+    const adapter = mockAdapter({ readAuth: () => ({ type: 'bearer', token: 'DEV_1' }) })
+    const { service } = setup(adapter)
+    const dev = await service.saveAs('dev', 'default')
+    adapter.readAuth = () => ({ type: 'bearer', token: 'ADMIN_1' })
+    const admin = await service.saveAs('admin', 'default')
+    if (!dev.ok || !admin.ok) throw new Error('save failed')
+
+    await service.updateSavedToken(admin.value.id, 'ADMIN_2')
+
+    const saved = await service.listSaved()
+    if (!saved.ok) throw new Error('list failed')
+    const byName = new Map(saved.value.map((c) => [c.name, c.token]))
+    expect(byName.get('admin')).toBe('ADMIN_2')
+    expect(byName.get('dev')).toBe('DEV_1') // untouched
+  })
 })

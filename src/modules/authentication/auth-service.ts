@@ -4,7 +4,13 @@ import { stableId } from '@/utils'
 import type { EventBus } from '@/core/events'
 import type { SwaggerAdapter, AuthSnapshot } from '@/adapters'
 import { decodeJwtExpiryMs, isJwt } from '@/utils'
-import { SUPPORTED_AUTH_TYPES, type AuthRecord, type AuthType, type SavedCredential } from './types'
+import {
+  SUPPORTED_AUTH_TYPES,
+  type AuthRecord,
+  type AuthType,
+  type SavedCredential,
+  type SavedLogin,
+} from './types'
 
 export interface AuthenticationServiceOptions {
   storage: StorageService
@@ -59,6 +65,19 @@ export class AuthenticationService {
 
   private vaultPrefix(): string {
     return projectKey(this.projectId, 'auth-vault', '')
+  }
+
+  /**
+   * Which saved credential is in use, per environment.
+   *
+   * Recorded explicitly rather than inferred by comparing tokens: Swagger can
+   * hand a token back in a slightly different form (scheme prefixes, apiKey
+   * values), and the auth watcher rewrites the active record from the page — so
+   * token equality silently stopped matching, and refresh fell back to "no
+   * credentials found".
+   */
+  private activeCredentialKey(environmentId: string): string {
+    return projectKey(this.projectId, 'auth-active-credential', environmentId)
   }
 
   /** Global opt-in for auto token refresh (default off). */
@@ -117,11 +136,21 @@ export class AuthenticationService {
     token: string,
     schemeName?: string,
   ): Promise<Result<AuthRecord>> {
-    const snapshot: AuthSnapshot = { type: 'bearer', token, schemeName }
+    // Keep the CREDENTIAL KIND of what's already stored. Forcing 'bearer' broke
+    // apiKey schemes: the MAIN-world bridge routes apiKey through
+    // `preauthorizeApiKey` and everything else through `authActions.authorize`,
+    // so a refreshed apiKey token written as a bearer never lands in Swagger.
+    const existing = await this.current(environmentId)
+    const previous = existing.ok ? existing.value : null
+    const kind: AuthSnapshot['type'] =
+      previous?.type === 'jwt' ? 'bearer' : (previous?.type ?? 'bearer')
+    const scheme = schemeName ?? previous?.schemeName
+
+    const snapshot: AuthSnapshot = { type: kind, token, schemeName: scheme }
     const record: AuthRecord = {
       type: this.refineType(snapshot),
       token,
-      schemeName,
+      schemeName: scheme,
       environmentId,
       updatedAt: this.now(),
       expiresAt: this.expiryOf(token) ?? undefined,
@@ -276,6 +305,10 @@ export class AuthenticationService {
       immediate: true,
     })
     if (!written.ok) return err(authWriteError(written.error.cause))
+    // Saving the live token under a name also identifies the account in use.
+    await this.storage.set(this.activeCredentialKey(environmentId), credential.id, {
+      immediate: true,
+    })
     return ok(credential)
   }
 
@@ -298,6 +331,99 @@ export class AuthenticationService {
     if (!injected.ok) return injected
     const saved = await this.save(record)
     return saved.ok ? ok(record) : saved
+  }
+
+  /**
+   * Store a credential obtained by signing in, rather than by reading Swagger's
+   * current state — the "add an account" path. Keeps the login attached so the
+   * same account can be refreshed later.
+   */
+  async addCredential(
+    name: string,
+    token: string,
+    login?: SavedLogin,
+  ): Promise<Result<SavedCredential>> {
+    const label = name.trim()
+    if (!label) return err(authWriteError(new Error('A name is required')))
+    if (!token) return err(authWriteError(new Error('No token to save')))
+
+    const snapshot: AuthSnapshot = { type: 'bearer', token }
+    const credential: SavedCredential = {
+      id: stableId('cred', this.projectId, label),
+      name: label,
+      type: this.refineType(snapshot),
+      token,
+      createdAt: this.now(),
+      expiresAt: this.expiryOf(token) ?? undefined,
+      ...(login ? { login } : {}),
+    }
+    const written = await this.storage.set(this.vaultKey(credential.id), credential, {
+      immediate: true,
+    })
+    return written.ok ? ok(credential) : err(authWriteError(written.error.cause))
+  }
+
+  /** Attach (or clear) the login used to refresh a saved credential's account. */
+  async setLogin(id: string, login: SavedLogin | null): Promise<Result<SavedCredential>> {
+    const got = await this.storage.getData<SavedCredential>(this.vaultKey(id))
+    if (!got.ok) return got
+    if (!got.value) return err(authWriteError(new Error(`No saved credential ${id}`)))
+    const updated: SavedCredential = { ...got.value }
+    if (login) updated.login = login
+    else delete updated.login
+    const written = await this.storage.set(this.vaultKey(id), updated, { immediate: true })
+    return written.ok ? ok(updated) : err(authWriteError(written.error.cause))
+  }
+
+  /**
+   * Login details for the credential currently in use, matched by token — so an
+   * expired token is refreshed with ITS OWN account, not whichever login happens
+   * to be saved. Returns null when the active token isn't in the vault or has no
+   * login attached.
+   */
+  async activeLogin(
+    environmentId: string,
+  ): Promise<(SavedLogin & { credentialId: string }) | null> {
+    const saved = await this.listSaved()
+    if (!saved.ok) return null
+
+    const recorded = await this.storage.getData<string>(this.activeCredentialKey(environmentId))
+    const byId =
+      recorded.ok && recorded.value ? saved.value.find((c) => c.id === recorded.value) : undefined
+    if (byId?.login) return { ...byId.login, credentialId: byId.id }
+
+    // Fallback for credentials saved before the active id was tracked.
+    const active = await this.current(environmentId)
+    if (!active.ok || !active.value) return null
+    const byToken = saved.value.find((c) => c.token === active.value?.token)
+    return byToken?.login ? { ...byToken.login, credentialId: byToken.id } : null
+  }
+
+  /** Name of the credential in use, for display. */
+  async activeCredentialName(environmentId: string): Promise<string | null> {
+    const recorded = await this.storage.getData<string>(this.activeCredentialKey(environmentId))
+    if (!recorded.ok || !recorded.value) return null
+    const saved = await this.listSaved()
+    if (!saved.ok) return null
+    return saved.value.find((c) => c.id === recorded.value)?.name ?? null
+  }
+
+  /**
+   * Write a freshly issued token onto ONE saved credential — the account that was
+   * just signed in. Without this the vault would keep the dead token, so the next
+   * expiry couldn't match it back to its login.
+   */
+  async updateSavedToken(id: string, token: string): Promise<Result<SavedCredential>> {
+    const got = await this.storage.getData<SavedCredential>(this.vaultKey(id))
+    if (!got.ok) return got
+    if (!got.value) return err(authWriteError(new Error(`No saved credential ${id}`)))
+    const updated: SavedCredential = {
+      ...got.value,
+      token,
+      expiresAt: this.expiryOf(token) ?? undefined,
+    }
+    const written = await this.storage.set(this.vaultKey(id), updated, { immediate: true })
+    return written.ok ? ok(updated) : err(authWriteError(written.error.cause))
   }
 
   async deleteSaved(id: string): Promise<Result<void>> {

@@ -103,7 +103,14 @@ export function PanelOutlet({
   }
 
   if (activeTab === 'auth' && authService && bus && environmentId) {
-    return <AuthPanel service={authService} bus={bus} environmentId={environmentId} />
+    return (
+      <AuthPanel
+        service={authService}
+        bus={bus}
+        environmentId={environmentId}
+        onNavigate={onNavigate}
+      />
+    )
   }
 
   if (activeTab === 'requests' && requestService && bus && environmentId) {

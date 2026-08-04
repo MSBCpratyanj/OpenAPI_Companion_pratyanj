@@ -56,10 +56,16 @@ function props(over: Partial<DashboardProps> = {}): DashboardProps {
       clear: okAsync(undefined),
       isAutoRefreshEnabled: vi.fn(async () => true),
       setAutoRefreshEnabled: okAsync(undefined),
+      addByLogin: okAsync({}),
+      refreshActivity: vi.fn(async () => []),
+      refreshNow: okAsync(true),
+      loginEndpoint: vi.fn(async () => null),
+      loginTemplate: vi.fn(async () => null),
       listSaved: okAsync([]),
       saveAs: okAsync({}),
       activateSaved: okAsync({}),
       deleteSaved: okAsync(undefined),
+      setLogin: okAsync({}),
     } as any,
     environmentService: {
       list: okAsync([

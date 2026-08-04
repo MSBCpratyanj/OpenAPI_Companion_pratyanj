@@ -24,6 +24,20 @@ export type AuthStatus = 'none' | 'authorized' | 'expired'
  * Separate from the active `AuthRecord`: the vault is per project and outlives
  * whichever environment is currently selected.
  */
+/**
+ * Credentials for re-logging-in a saved token's account.
+ *
+ * ⚠️ Stored in `chrome.storage.local` in plaintext, like every other value this
+ * extension keeps (DD-037). Unlike a token, a password does not expire, so this
+ * is deliberately opt-in per credential and is REDACTED from exports/backups
+ * (see ImportExportService) — a shared backup file must not leak passwords.
+ */
+export interface SavedLogin {
+  /** Email / username for this account. */
+  username: string
+  password: string
+}
+
 export interface SavedCredential {
   id: string
   name: string
@@ -33,4 +47,6 @@ export interface SavedCredential {
   createdAt: number
   /** Epoch-ms expiry (from a JWT `exp` claim), when known. */
   expiresAt?: number
+  /** Optional: how to log this account back in when its token expires. */
+  login?: SavedLogin
 }

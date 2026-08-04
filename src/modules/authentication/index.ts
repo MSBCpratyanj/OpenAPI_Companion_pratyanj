@@ -10,4 +10,5 @@ export {
   type AuthRecord,
   type AuthStatus,
   type SavedCredential,
+  type SavedLogin,
 } from './types'
