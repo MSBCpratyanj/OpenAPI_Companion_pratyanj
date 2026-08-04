@@ -17,6 +17,8 @@ interface DialogProps {
   children: ReactNode
   size?: DialogSize
   align?: DialogAlign
+  /** Controls placed in the header, left of Close — for per-dialog actions. */
+  actions?: ReactNode
 }
 
 const SIZE_CLASS: Record<DialogSize, string> = {
@@ -39,7 +41,14 @@ const ALIGN_CLASS: Record<DialogAlign, string> = {
  * (unless a child — e.g. the palette's autoFocus input — already claimed it);
  * on close, focus returns to the element that opened it.
  */
-export function Dialog({ title, onClose, children, size = 'lg', align = 'center' }: DialogProps) {
+export function Dialog({
+  title,
+  onClose,
+  children,
+  size = 'lg',
+  align = 'center',
+  actions,
+}: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -77,11 +86,14 @@ export function Dialog({ title, onClose, children, size = 'lg', align = 'center'
         onClick={(e) => e.stopPropagation()}
         className={`flex max-h-[85vh] w-full ${SIZE_CLASS[size]} flex-col overflow-hidden rounded-xl border border-border bg-bg text-text shadow-2xl focus:outline-none`}
       >
-        <header className="flex items-center justify-between border-b border-border px-4 py-2">
-          <strong className="text-sm">{title}</strong>
-          <IconButton label="Close" onClick={onClose}>
-            <CloseIcon />
-          </IconButton>
+        <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
+          <strong className="shrink-0 text-sm">{title}</strong>
+          <div className="flex min-w-0 items-center gap-1">
+            {actions}
+            <IconButton label="Close" onClick={onClose}>
+              <CloseIcon />
+            </IconButton>
+          </div>
         </header>
         <div className="overflow-auto p-4">{children}</div>
       </div>

@@ -58,34 +58,48 @@ describe('HistoryPanel', () => {
     )
   })
 
-  // Repeat calls to one endpoint are separate entries; the detail view lists them
-  // by time so they can be compared without closing the dialog.
-  it('offers Replay / Locate and a timeline of repeat calls in the detail view', async () => {
+  // Repeats collapse into ONE row so a hammered endpoint can't bury the rest of
+  // the list; every call is still there, listed in the detail view.
+  it('groups repeat calls into one row and lists them in the detail view', async () => {
     const second: HistoryEntry = { ...entry, id: 'h2', timestamp: 60_000, status: 500 }
     const service = mockService({
       list: vi.fn(async (): Promise<Result<HistoryEntry[]>> => ok([second, entry])),
     })
     render(<HistoryPanel service={service} bus={new EventBus()} />)
-    // Two rows now (one per call), so wait for the buttons rather than the path.
-    const rows = await screen.findAllByRole('button', { name: 'View post /users details' })
-    expect(rows).toHaveLength(2)
 
-    fireEvent.click(rows[1]!) // the older call → record h1
+    // One row for two calls, labelled with the count.
+    const rows = await screen.findAllByRole('button', { name: 'View post /users details' })
+    expect(rows).toHaveLength(1)
+    expect(screen.getByText('2 calls')).toBeInTheDocument()
+
+    fireEvent.click(rows[0]!)
     const dialog = await screen.findByRole('dialog', { name: 'Request detail' })
     expect(dialog).toHaveTextContent('2 calls to this endpoint')
 
-    // Acting directly from the detail view, no ⋮ menu needed.
-    fireEvent.click(screen.getByRole('button', { name: /Replay/ }))
-    expect(service.replay).toHaveBeenCalledWith('h1')
-
-    fireEvent.click(screen.getByRole('button', { name: /Locate in Swagger/ }))
+    // Replay / Locate live in the dialog header, reachable without scrolling.
+    fireEvent.click(screen.getByRole('button', { name: 'Replay' }))
+    expect(service.replay).toHaveBeenCalledWith(record.id)
+    fireEvent.click(screen.getByRole('button', { name: 'Locate' }))
     expect(service.locate).toHaveBeenCalledWith('post /users')
 
     // Picking another call loads that record into the same inspector.
     ;(service.get as ReturnType<typeof vi.fn>).mockClear()
     const timeline = within(screen.getByRole('list', { name: 'Calls to this endpoint' }))
-    fireEvent.click(timeline.getAllByRole('button')[0]!) // the newest call, h2
-    await waitFor(() => expect(service.get).toHaveBeenCalledWith('h2'))
+    fireEvent.click(timeline.getAllByRole('button')[1]!)
+    await waitFor(() => expect(service.get).toHaveBeenCalledWith('h1'))
+  })
+
+  it('deletes every call behind a grouped row, saying how many', async () => {
+    const second: HistoryEntry = { ...entry, id: 'h2', timestamp: 60_000 }
+    const service = mockService({
+      list: vi.fn(async (): Promise<Result<HistoryEntry[]>> => ok([second, entry])),
+    })
+    render(<HistoryPanel service={service} bus={new EventBus()} />)
+    await screen.findByText('2 calls')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for post /users' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete 2 calls/ }))
+    await waitFor(() => expect(service.deleteEntry).toHaveBeenCalledTimes(2))
   })
 
   it('wraps long body lines by default, and the toggle survives a tab switch', async () => {

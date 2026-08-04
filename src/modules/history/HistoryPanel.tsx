@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Result } from '@/types'
 import type { EventBus } from '@/core/events'
 import { useEventBus } from '@/hooks'
@@ -52,6 +52,38 @@ interface HistoryPanelProps {
 
 const METHODS = ['', 'get', 'post', 'put', 'patch', 'delete']
 
+/** One row per operation: its latest call, plus every call behind it. */
+interface CallGroup {
+  latest: HistoryEntry
+  calls: HistoryEntry[]
+}
+
+/**
+ * Collapse repeats: hammering one endpoint shouldn't bury the rest of the list.
+ * `entries` arrive newest-first, so each group's first call is its latest and the
+ * groups stay in most-recent-first order.
+ */
+function groupByEndpoint(entries: HistoryEntry[]): CallGroup[] {
+  const byEndpoint = new Map<string, HistoryEntry[]>()
+  for (const entry of entries) {
+    const calls = byEndpoint.get(entry.endpointId)
+    if (calls) calls.push(entry)
+    else byEndpoint.set(entry.endpointId, [entry])
+  }
+  return [...byEndpoint.values()].map((calls) => ({ latest: calls[0]!, calls }))
+}
+
+/** "just now" / "5m ago" / "2h ago" / "3d ago" — when it was last called. */
+function lastCalled(timestamp: number): string {
+  const diff = Math.max(0, Date.now() - timestamp)
+  if (diff < 60_000) return 'just now'
+  const minutes = Math.floor(diff / 60_000)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
 export function HistoryPanel({ service, bus }: HistoryPanelProps) {
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,6 +101,8 @@ export function HistoryPanel({ service, bus }: HistoryPanelProps) {
     void load()
   }, [load])
 
+  const groups = useMemo(() => groupByEndpoint(entries), [entries])
+
   useEventBus(bus, 'HISTORY_RECORDED', () => void load())
   useEventBus(bus, 'HISTORY_CLEARED', () => void load())
 
@@ -84,8 +118,8 @@ export function HistoryPanel({ service, bus }: HistoryPanelProps) {
   // Replay re-executes the whole request; Locate just jumps to it (EC-013 errors → toast).
   const replay = async (id: string) => toastErr(await service.replay(id))
   const locate = (endpointId: string) => toastErr(service.locate(endpointId))
-  const remove = async (id: string) => {
-    toastErr(await service.deleteEntry(id))
+  const removeAll = async (calls: HistoryEntry[]) => {
+    for (const call of calls) toastErr(await service.deleteEntry(call.id))
     await load()
   }
 
@@ -126,22 +160,33 @@ export function HistoryPanel({ service, bus }: HistoryPanelProps) {
       ) : (
         <>
           <ul className="flex flex-col gap-1">
-            {entries.map((e) => (
+            {groups.map(({ latest: e, calls }) => (
               <li
-                key={e.id}
+                key={e.endpointId}
                 className="flex items-start gap-2 rounded-md border border-border px-2 py-2"
               >
                 <button
                   type="button"
                   onClick={() => void openDetail(e.id)}
-                  className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                  className="flex min-w-0 flex-1 flex-col gap-1 text-left"
                   aria-label={`View ${e.method} ${e.endpoint} details`}
                   title="View details"
                 >
-                  <Badge kind={statusKind(e.status)}>{e.status}</Badge>
-                  <Badge kind={methodKind(e.method)}>{e.method.toUpperCase()}</Badge>
-                  {/* Full path — wraps at "/" segments so it's always readable. */}
-                  <PathText path={e.endpoint} />
+                  <span className="flex min-w-0 items-start gap-2">
+                    <Badge kind={statusKind(e.status)}>{e.status}</Badge>
+                    <Badge kind={methodKind(e.method)}>{e.method.toUpperCase()}</Badge>
+                    {/* Full path — wraps at "/" segments so it's always readable. */}
+                    <PathText path={e.endpoint} />
+                  </span>
+                  {/* Repeats collapse into this row; the detail view lists them all. */}
+                  <span className="flex items-center gap-2 text-[10px] text-muted">
+                    {calls.length > 1 ? (
+                      <span className="rounded-full bg-surface px-1.5 py-0.5 font-semibold">
+                        {calls.length} calls
+                      </span>
+                    ) : null}
+                    <span>{lastCalled(e.timestamp)}</span>
+                  </span>
                 </button>
                 <Menu
                   label={`Actions for ${e.method} ${e.endpoint}`}
@@ -157,10 +202,11 @@ export function HistoryPanel({ service, bus }: HistoryPanelProps) {
                       onSelect: () => locate(e.endpointId),
                     },
                     {
-                      label: 'Delete',
+                      // Says how many it removes — the row stands for every call.
+                      label: calls.length > 1 ? `Delete ${calls.length} calls` : 'Delete',
                       icon: <DeleteIcon className="h-4 w-4" />,
                       danger: true,
-                      onSelect: () => void remove(e.id),
+                      onSelect: () => void removeAll(calls),
                     },
                   ]}
                 />
@@ -174,15 +220,39 @@ export function HistoryPanel({ service, bus }: HistoryPanelProps) {
       )}
 
       {detail ? (
-        <Dialog title="Request detail" onClose={() => setDetail(null)} size="full">
+        <Dialog
+          title="Request detail"
+          onClose={() => setDetail(null)}
+          size="full"
+          // Sit in the header (beside Close) so they're reachable without
+          // scrolling a long response body.
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={() => void replay(detail.id)}
+                className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-text hover:bg-surface"
+              >
+                <ReplayIcon className="h-3.5 w-3.5" />
+                Replay
+              </button>
+              <button
+                type="button"
+                onClick={() => locate(detail.endpointId)}
+                className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-text hover:bg-surface"
+              >
+                <LocateIcon className="h-3.5 w-3.5" />
+                Locate
+              </button>
+            </>
+          }
+        >
           <HistoryDetail
             record={detail}
             // Sibling calls come from the list already loaded here — no extra
             // service call needed, and it stays in sync with the filters above.
             calls={entries.filter((e) => e.endpointId === detail.endpointId)}
             onSelectCall={(id) => void openDetail(id)}
-            onReplay={(id) => void replay(id)}
-            onLocate={locate}
           />
         </Dialog>
       ) : null}

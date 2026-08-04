@@ -1,13 +1,10 @@
 import { useState } from 'react'
 import {
   Badge,
-  Button,
   CopyButton,
   Tabs,
   type TabDef,
   ClockIcon,
-  LocateIcon,
-  ReplayIcon,
   RequestIcon,
   ResponseIcon,
 } from '@/components'
@@ -90,24 +87,16 @@ export interface HistoryDetailProps {
   calls?: HistoryEntry[]
   /** Load another call of this operation into the inspector. */
   onSelectCall?: (id: string) => void
-  onReplay?: (id: string) => void
-  onLocate?: (endpointId: string) => void
 }
 
 /**
  * Tabbed inspector for a history entry: a fixed summary header (status / method
  * / path + metadata) with Request / Response tabs, each showing the (pretty-
- * printed) body and a copy button — plus Replay / Locate, and a timeline of the
- * other times this same operation was called, so repeats are comparable without
- * closing the dialog.
+ * printed) body and a copy button — plus a timeline of the other
+ * times this same operation was called, so repeats are comparable without
+ * closing the dialog. Replay / Locate live in the dialog header.
  */
-export function HistoryDetail({
-  record,
-  calls = [],
-  onSelectCall,
-  onReplay,
-  onLocate,
-}: HistoryDetailProps) {
+export function HistoryDetail({ record, calls = [], onSelectCall }: HistoryDetailProps) {
   const [tab, setTab] = useState('request')
   // Wrap by default: the panel is narrow, and long tokens/URLs would otherwise
   // need sideways scrolling. Kept at this level so it survives a tab switch.
@@ -135,23 +124,6 @@ export function HistoryDetail({
           <span>env: {record.environmentId}</span>
         </div>
       </div>
-
-      {onReplay || onLocate ? (
-        <div className="flex flex-wrap gap-2">
-          {onReplay ? (
-            <Button variant="secondary" onClick={() => onReplay(record.id)}>
-              <ReplayIcon className="h-3.5 w-3.5" />
-              Replay
-            </Button>
-          ) : null}
-          {onLocate ? (
-            <Button variant="secondary" onClick={() => onLocate(record.endpointId)}>
-              <LocateIcon className="h-3.5 w-3.5" />
-              Locate in Swagger
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
 
       {calls.length > 1 ? (
         <div className="flex flex-col gap-1">
