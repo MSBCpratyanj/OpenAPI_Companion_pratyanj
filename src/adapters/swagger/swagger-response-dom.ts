@@ -14,8 +14,26 @@ const LIVE_RESPONSE = '.live-responses-table, .responses-table.live-responses-ta
 // `.response-col_status` ("Code") / `.response-col_description` ("Details") —
 // exclude it with `:not(.col_header)` so we read the actual data row.
 const STATUS = '.response-col_status:not(.col_header)'
+// `pre` first: Swagger nests the Download / Copy buttons INSIDE the highlight
+// wrapper, so reading the wrapper's textContent prefixes the body with their
+// labels ("Download{\"success\":…") — which is not parseable JSON. The <pre>
+// holds just the code; the button-stripping below covers versions that differ.
 const BODY =
-  '.response-col_description:not(.col_header) .microlight, .response-col_description:not(.col_header) .highlight-code, .response-col_description:not(.col_header) pre'
+  '.response-col_description:not(.col_header) pre, .response-col_description:not(.col_header) .microlight, .response-col_description:not(.col_header) .highlight-code'
+/** Controls Swagger renders next to the body, whose text is not part of it. */
+const NON_BODY = 'button, .copy-to-clipboard, .download-contents, svg'
+
+/**
+ * The response body as text, with Swagger's own controls stripped. Read from a
+ * clone so the page's DOM is never mutated.
+ */
+function bodyTextOf(scope: Element): string | undefined {
+  const node = scope.querySelector(BODY)
+  if (!node) return undefined
+  const clone = node.cloneNode(true) as Element
+  for (const control of Array.from(clone.querySelectorAll(NON_BODY))) control.remove()
+  return clone.textContent?.trim() || undefined
+}
 
 function parseStatus(text: string | null | undefined): number | null {
   const match = (text ?? '').match(/\d{3}/)
@@ -35,7 +53,7 @@ export function readExecutedResponses(doc: Document = document): ExecutedRespons
 
     const method = endpointId.split(' ')[0] ?? 'unknown'
     const endpoint = endpointId.slice(method.length + 1)
-    const responseBody = live.querySelector(BODY)?.textContent ?? undefined
+    const responseBody = bodyTextOf(live)
     const requestBody = block.querySelector<HTMLTextAreaElement>('textarea.body-param__text')?.value
 
     results.push({

@@ -66,4 +66,40 @@ describe('swagger-response-dom', () => {
     const [res] = readExecutedResponses(document)
     expect(res?.status).toBe(404)
   })
+
+  // Regression: Swagger nests Download / Copy buttons INSIDE the body wrapper, so
+  // textContent came back as `Download{"success":…}` — unparseable JSON, which
+  // silently broke auto token refresh (no token found in the login response).
+  it('excludes Swagger’s own controls from the captured body', () => {
+    document.body.innerHTML = `
+      <div class="opblock is-open">
+        <div class="opblock-summary">
+          <span class="opblock-summary-method">POST</span>
+          <span class="opblock-summary-path" data-path="/auth/login"></span>
+        </div>
+        <table class="live-responses-table">
+          <tbody>
+            <tr>
+              <td class="response-col_status">200</td>
+              <td class="response-col_description">
+                <div class="highlight-code">
+                  <button class="copy-to-clipboard"><svg></svg></button>
+                  <button class="download-contents">Download</button>
+                  <pre class="microlight">{"data":{"tokens":{"access_token":"eyJhbGciOi.abc.def"}}}</pre>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`
+
+    const [response] = readExecutedResponses(document)
+    expect(response?.responseBody?.startsWith('{')).toBe(true)
+    expect(response?.responseBody).not.toContain('Download')
+    // The whole point: it must be parseable, so the token can be extracted.
+    const parsed = JSON.parse(response?.responseBody ?? '') as {
+      data: { tokens: { access_token: string } }
+    }
+    expect(parsed.data.tokens.access_token).toBe('eyJhbGciOi.abc.def')
+  })
 })
