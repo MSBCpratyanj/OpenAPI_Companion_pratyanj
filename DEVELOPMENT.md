@@ -54,24 +54,60 @@ After changing the background worker or `manifest.config.ts`, click the **reload
 ```bash
 npx playwright install chromium   # one-time (~150 MB download)
 npm run build                     # E2E runs against dist/
-npm run test:e2e                  # smoke: extension loads, SW registers, popup renders
+npm run test:e2e                  # smoke: extension loads, SW registers, panel boots
 ```
 
 ## 8. Troubleshooting
 | Symptom | Explanation / fix |
 |---|---|
 | `npm audit` reports high/critical | Dev-toolchain only (Vite/Vitest/esbuild) — **not shipped**. The shipping gate is `npm audit --omit=dev` → **0 vulnerabilities**. |
-| Sidebar doesn't appear | Confirm the page is actually Swagger UI; reload the unpacked extension after a rebuild. |
+| Panel doesn't appear | Confirm the page is Swagger UI, reload the extension card, **then hard-refresh the tab** (⌘⇧R) — reloading the extension does not replace content scripts in already-open tabs. |
+| Console: "could not load the search palette" | That tab is running a pre-rebuild content script (chunk names are content-hashed). Hard-refresh it. |
 | E2E can't find the service worker | Run `npm run build` first; the Playwright fixture uses `channel: 'chromium'` (already configured) since the headless shell can't load extensions. |
 | Changes not reflected | Rebuild (`npm run build`) and reload the extension card; for UI-only changes use `npm run dev`. |
+
+## 9. Cutting a release (downloadable build)
+
+Developers who just want to *use* the extension don't need this repo — the Release
+workflow publishes a ready-to-load zip.
+
+```bash
+# 1. Bump the version (the manifest version is injected from package.json)
+npm version patch          # or minor / major — creates the commit AND the v* tag
+
+# 2. Push the commit and the tag
+git push origin main --follow-tags
+```
+
+The tag push runs `.github/workflows/release.yml`, which re-runs every gate
+(lint, format, type-check, unit tests, prod audit, build, **plus the E2E smoke
+against the built `dist/`**), then publishes a GitHub Release with
+`openapi-companion-<version>.zip` attached.
+
+Guard rails: the job fails if the tag doesn't match `package.json`, or if the
+built `dist/manifest.json` version disagrees — so a mislabelled build can't ship.
+
+**Rehearse without publishing:** Actions → *Release* → *Run workflow*. On a
+non-tag run it uploads the zip as a workflow artifact and creates no release.
+
+### What users do with the zip
+Unzip → `chrome://extensions` → **Developer mode** → **Load unpacked** → select the
+unzipped folder. `manifest.json` sits at the zip root, so that folder loads
+directly. Requires **Chrome 116+** (side panel API).
+
+The zip contains only `dist/` — the built extension, no source. Source maps *are*
+included (~350 KB zipped total): they cost little and turn an unreadable
+`assets/index.tsx-<hash>.js:31` bug report into a real file and line.
 
 ## Project layout (quick map)
 ```
 src/
 ├── background/      MV3 service worker (runs migrations on install/update)
-├── content/         detects Swagger → identifies project → mounts sidebar
-├── sidebar/         React sidebar shell (minimal for now)
-├── popup/           toolbar popup
+├── content/         headless agent in the page: detects Swagger, runs the
+│                    always-on behaviors, bridges RPC/state to the side panel,
+│                    and hosts the ⌘K palette + launcher button
+├── sidepanel/       the UI — native chrome.sidePanel page (PanelShell)
+├── sidebar/         shared panel components (PanelOutlet, tabs, Dashboard)
 ├── adapters/        SwaggerAdapter — the ONLY code touching the Swagger DOM
 ├── core/            storage, events, project (the Foundation)
 ├── modules/         feature modules (Auth, Request, … — built per sprint)

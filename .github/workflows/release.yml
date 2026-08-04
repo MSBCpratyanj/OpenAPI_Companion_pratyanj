@@ -1,0 +1,149 @@
+name: Release
+
+# Publishes the BUILT extension so any developer can download it and load it in
+# their browser — no cloning, no npm, no build step on their side.
+#
+#   Tag push (v*)     → runs the full gates, then creates a GitHub Release with
+#                       openapi-companion-<version>.zip attached (public, permanent).
+#   Manual dispatch   → same build + checks, uploaded as a workflow artifact only.
+#                       Use it to rehearse a release without publishing anything.
+#
+# The zip holds the CONTENTS of dist/ at its root, so the folder a user unzips is
+# exactly what Chrome's "Load unpacked" expects (manifest.json at the top level).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create the release
+
+jobs:
+  release:
+    name: Build · verify · publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # A release must never ship a red build, so re-run the CI gates here rather
+      # than trusting that the tagged commit happened to pass them.
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Type-check
+        run: npm run typecheck
+      - name: Unit + component tests
+        run: npm test
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Build extension
+        run: npm run build
+
+      # Loads the freshly built dist/ in real Chromium — verifies the exact
+      # artifact we're about to publish actually starts.
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: E2E smoke on the built extension
+        run: npm run test:e2e
+
+      - name: Resolve version
+        id: version
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION}."
+              echo "::error::The manifest version is injected from package.json, so the two must agree."
+              exit 1
+            fi
+          fi
+          echo "version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the built manifest
+        run: |
+          test -f dist/manifest.json || { echo "::error::dist/manifest.json is missing"; exit 1; }
+          MANIFEST_VERSION="$(node -p "require('./dist/manifest.json').version")"
+          if [ "$MANIFEST_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::Built manifest says $MANIFEST_VERSION, expected ${{ steps.version.outputs.version }}"
+            exit 1
+          fi
+
+      - name: Package the extension
+        run: |
+          ZIP="openapi-companion-${{ steps.version.outputs.version }}.zip"
+          # Zip from inside dist/ so manifest.json lands at the archive root.
+          (cd dist && zip -qr "../$ZIP" .)
+          echo "Packaged $ZIP:"
+          unzip -l "$ZIP"
+
+      # Manual runs stop here: a downloadable artifact, nothing published.
+      - name: Upload build artifact
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v5
+        with:
+          name: openapi-companion-${{ steps.version.outputs.version }}
+          path: openapi-companion-${{ steps.version.outputs.version }}.zip
+          if-no-files-found: error
+
+      - name: Write release notes
+        if: github.ref_type == 'tag'
+        run: |
+          # Quoted heredoc: no shell expansion, so backticks in the markdown are
+          # safe. The placeholders are substituted afterwards.
+          cat > RELEASE_NOTES.md <<'NOTES'
+          ## Install (Chrome / Edge / Brave)
+
+          1. Download **openapi-companion-__VERSION__.zip** from the Assets below and unzip it.
+          2. Open `chrome://extensions`
+          3. Enable **Developer mode** (top-right toggle)
+          4. Click **Load unpacked** and pick the unzipped folder — the one containing `manifest.json`
+          5. Open any Swagger UI / OpenAPI page, then either click the toolbar icon, press
+             <kbd>⌘⇧O</kbd> / <kbd>Ctrl+Shift+O</kbd>, or click the floating button on the page
+
+          Requires **Chrome 116+** (the side panel API). Press <kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd> on a
+          docs page for endpoint search.
+
+          ## What it does
+
+          A productivity layer over Swagger UI / OpenAPI docs: auth persistence with auto-restore,
+          request save & restore, environments, searchable history with replay, fake-data generation,
+          and ⌘K endpoint search — all in a native browser side panel.
+
+          ## Updating
+
+          Download the new zip, replace the unzipped folder, then hit **reload** on the extension
+          card in `chrome://extensions`. Refresh any open docs tab so it picks up the new build.
+
+          ## Notes
+
+          - Data stays local to your browser (`chrome.storage.local`). No telemetry, no external servers.
+          - Chrome will label this a developer/unpacked extension until the Web Store listing is live.
+
+          ---
+
+          Full commit history: __REPO_URL__/commits/__TAG__
+          NOTES
+          sed -i \
+            -e "s|__VERSION__|${{ steps.version.outputs.version }}|g" \
+            -e "s|__REPO_URL__|${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}|g" \
+            -e "s|__TAG__|${GITHUB_REF_NAME}|g" \
+            RELEASE_NOTES.md
+
+      - name: Create the GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "openapi-companion-${{ steps.version.outputs.version }}.zip" \
+            --title "OpenAPI Companion ${GITHUB_REF_NAME}" \
+            --notes-file RELEASE_NOTES.md \
+            --verify-tag
