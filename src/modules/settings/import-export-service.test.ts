@@ -163,4 +163,35 @@ describe('ImportExportService.applyImport', () => {
     const all = await storage.list('')
     expect(all.ok && all.value).toEqual([])
   })
+
+  // Backups get emailed, committed and shared. A token expires; a password does
+  // not — so the password must not travel in the file.
+  it('omits saved passwords from the export', async () => {
+    const area = createFakeArea()
+    const storage = new StorageService({ area, now: () => 0 })
+    await storage.set('oac/project/p1/auth-vault/cred_admin', {
+      id: 'cred_admin',
+      name: 'admin',
+      type: 'bearer',
+      token: 'TOKEN_KEPT',
+      createdAt: 0,
+      login: {
+        url: '/auth/login',
+        username: 'admin@acme.io',
+        password: 'SUPER_SECRET',
+        usernameField: 'email',
+        passwordField: 'password',
+      },
+    })
+    const io = new ImportExportService({ storage, now: () => 0 })
+
+    const exported = await io.exportAll()
+    expect(exported.ok).toBe(true)
+    if (!exported.ok) return
+
+    expect(exported.value).not.toContain('SUPER_SECRET')
+    // Everything else survives: the token, and the rest of the login details.
+    expect(exported.value).toContain('TOKEN_KEPT')
+    expect(exported.value).toContain('admin@acme.io')
+  })
 })

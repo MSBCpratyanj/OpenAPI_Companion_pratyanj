@@ -55,6 +55,23 @@ export interface ImportExportApi {
 }
 
 /**
+ * Strip credentials that must never leave the browser in a file.
+ *
+ * A saved token is scoped and expires; the LOGIN attached to it (username +
+ * password) does not, and backups get emailed, committed and shared. Tokens stay
+ * — losing them just means re-authorizing — but the password is dropped, so a
+ * restored vault entry simply asks for it again.
+ */
+function redactSecrets(key: string, value: unknown): unknown {
+  if (!key.includes('/auth-vault/') || typeof value !== 'object' || value === null) return value
+  const entry = value as { login?: Record<string, unknown> }
+  if (!entry.login) return value
+  const login = { ...entry.login }
+  delete login.password
+  return { ...entry, login: { ...login, password: '' } }
+}
+
+/**
  * Data portability (FDD-010, EPIC-09, DD-039). Exports every stored entry to a
  * versioned JSON bundle and re-imports it with strict validation: unparseable or
  * future-schema files are rejected before any write, and keys outside the
@@ -82,7 +99,7 @@ export class ImportExportService implements ImportExportApi {
     const entries: Record<string, unknown> = {}
     for (const key of keys.value) {
       const got = await this.storage.getData<unknown>(key)
-      if (got.ok && got.value !== null) entries[key] = got.value
+      if (got.ok && got.value !== null) entries[key] = redactSecrets(key, got.value)
     }
     const bundle: ExportBundle = {
       app: APP_NAME,

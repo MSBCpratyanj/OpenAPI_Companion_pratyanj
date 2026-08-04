@@ -4,6 +4,8 @@ import path from 'node:path'
 
 // Separate from vite.config so the CRXJS plugin does not run during tests.
 export default defineConfig({
+  // Mirrors the stamp vite.config.ts injects, so components can read it in tests.
+  define: { __BUILD_ID__: JSON.stringify('test') },
   plugins: [react()],
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },

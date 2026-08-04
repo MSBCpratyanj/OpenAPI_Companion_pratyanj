@@ -280,6 +280,13 @@ export function SettingsPanel({ settings, io, theme, projectId, bus }: SettingsP
           <span className="text-muted">{APP_NAME}</span>
           <span className="font-mono text-text">v{APP_VERSION}</span>
         </div>
+        {/* Which build is actually loaded. Reloading the extension doesn't refresh
+            an open panel or already-injected content scripts, so "the new thing
+            isn't there" is usually a stale load — this makes that checkable. */}
+        <div className="flex items-center justify-between">
+          <span className="text-muted">Build</span>
+          <span className="font-mono text-text">{__BUILD_ID__}</span>
+        </div>
       </Section>
 
       {confirm ? (
