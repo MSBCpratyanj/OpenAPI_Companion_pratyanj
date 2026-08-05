@@ -1,6 +1,6 @@
 {
   "name": "openapi-companion",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "A browser extension that turns OpenAPI/Swagger docs into a persistent, productivity-focused API testing workspace.",
   "license": "MIT",
