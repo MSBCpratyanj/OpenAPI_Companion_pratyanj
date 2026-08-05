@@ -18,7 +18,11 @@ import type { SwaggerAdapter } from '@/adapters'
 /** What we need from AuthenticationService. */
 export interface RefreshAuthApi {
   current(environmentId: string): Promise<Result<AuthRecordLike | null>>
-  applyToken(environmentId: string, token: string, schemeName?: string): Promise<Result<unknown>>
+  applyToken(
+    environmentId: string,
+    token: string,
+    schemeName?: string,
+  ): Promise<Result<{ token: string }>>
 }
 
 /** Login attached to a saved credential, plus which credential it belongs to. */
@@ -350,8 +354,10 @@ export class TokenRefreshService {
 
     const applied = await this.auth.applyToken(environmentId, token, schemeName)
     if (!applied.ok) return applied
+    // Persist the value actually applied to Swagger (with any `Bearer ` prefix),
+    // so re-selecting this account later authorizes with the working format.
     // Only THIS credential is rewritten — the other saved tokens are untouched.
-    await this.vault?.updateSavedToken(login.credentialId, token)
+    await this.vault?.updateSavedToken(login.credentialId, applied.value.token)
     this.note('success', `New token stored and applied (${token.slice(-6)})`)
     this.bus?.publish('NOTIFY', {
       kind: 'success',

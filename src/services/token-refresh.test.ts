@@ -41,7 +41,7 @@ const loginTemplate: TemplateLike = {
 
 function mockAuth(
   expiresAt: number | undefined,
-  applyToken = vi.fn(async () => ok({})),
+  applyToken = vi.fn(async (_e: string, t: string) => ok({ token: t })),
 ): RefreshAuthApi & { applyToken: ReturnType<typeof vi.fn> } {
   return {
     current: vi.fn(async () =>
@@ -352,7 +352,7 @@ describe('TokenRefreshService — 401/403 response trigger', () => {
       adapter: mockAdapter(() => []),
       auth: {
         current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000 }),
-        applyToken: async () => ok(undefined),
+        applyToken: async (_e, t) => ok({ token: t }),
       },
       templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
       bus,
@@ -396,7 +396,7 @@ describe('TokenRefreshService — 401/403 response trigger', () => {
         current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000, schemeName: 'Bearer' }),
         applyToken: async (_env, token) => {
           applied = token
-          return ok(undefined)
+          return ok({ token })
         },
       },
       templates: {
@@ -470,7 +470,7 @@ describe('TokenRefreshService — 401/403 response trigger', () => {
         current: async () => ok({ token: 'ADMIN_OLD', expiresAt: NOW - 1000 }),
         applyToken: async (_env, token) => {
           applied = token
-          return ok(undefined)
+          return ok({ token })
         },
       },
       // A matching template exists and must be ignored in favour of the account's
@@ -528,7 +528,7 @@ describe('TokenRefreshService — 401/403 response trigger', () => {
       adapter: { ...mockAdapter(() => []), listEndpoints: () => [] },
       auth: {
         current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000 }),
-        applyToken: async () => ok(undefined),
+        applyToken: async (_e, t) => ok({ token: t }),
       },
       templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
       vault: {
@@ -554,7 +554,7 @@ describe('TokenRefreshService login endpoint selection', () => {
   const service = (paths: Array<[string, string]>) =>
     new TokenRefreshService({
       adapter: { ...mockAdapter(() => []), listEndpoints: () => endpointsOf(paths) },
-      auth: { current: async () => ok(null), applyToken: async () => ok(undefined) },
+      auth: { current: async () => ok(null), applyToken: async (_e, t) => ok({ token: t }) },
       templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
       now: () => NOW,
     })
@@ -622,7 +622,7 @@ describe('TokenRefreshService.signIn', () => {
       },
       auth: {
         current: async () => ok(null),
-        applyToken: async () => {
+        applyToken: async (): Promise<Result<{ token: string }>> => {
           throw new Error('adding an account must not change what is authorized')
         },
       },
@@ -645,7 +645,7 @@ describe('TokenRefreshService.signIn', () => {
   it('fails clearly when the API has no sign-in endpoint', async () => {
     const service = new TokenRefreshService({
       adapter: { ...mockAdapter(() => []), listEndpoints: () => [] },
-      auth: { current: async () => ok(null), applyToken: async () => ok(undefined) },
+      auth: { current: async () => ok(null), applyToken: async (_e, t) => ok({ token: t }) },
       templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
       now: () => NOW,
     })

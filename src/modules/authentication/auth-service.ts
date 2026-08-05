@@ -27,6 +27,21 @@ const authWriteError = (cause?: unknown): AppError => ({
   cause,
 })
 
+/** The `Bearer ` prefix on a token value, preserving its exact spacing/case, or ''. */
+function bearerPrefixOf(token: string): string {
+  return token.match(/^bearer\s+/i)?.[0] ?? ''
+}
+
+/** Token with any leading `Bearer ` removed — the raw credential. */
+function stripBearer(token: string): string {
+  return token.replace(/^bearer\s+/i, '')
+}
+
+/** Apply `prefix` to `token` without doubling it (token may already carry one). */
+function withBearerPrefix(token: string, prefix: string): string {
+  return `${prefix}${stripBearer(token)}`
+}
+
 /** Global (cross-project) feature flag for auto token refresh. */
 const AUTO_REFRESH_KEY = settingsKey('auto-refresh-token')
 
@@ -146,14 +161,21 @@ export class AuthenticationService {
       previous?.type === 'jwt' ? 'bearer' : (previous?.type ?? 'bearer')
     const scheme = schemeName ?? previous?.schemeName
 
-    const snapshot: AuthSnapshot = { type: kind, token, schemeName: scheme }
+    // Re-apply the `Bearer ` prefix the previous token used, so apiKey schemes
+    // that expect "Authorization: Bearer <jwt>" keep working after a refresh.
+    const applied = withBearerPrefix(
+      token,
+      await this.bearerPrefixFor(environmentId, previous?.token),
+    )
+
+    const snapshot: AuthSnapshot = { type: kind, token: applied, schemeName: scheme }
     const record: AuthRecord = {
       type: this.refineType(snapshot),
-      token,
+      token: applied,
       schemeName: scheme,
       environmentId,
       updatedAt: this.now(),
-      expiresAt: this.expiryOf(token) ?? undefined,
+      expiresAt: this.expiryOf(applied) ?? undefined,
     }
     const injected = this.adapter.writeAuth(this.toSnapshot(record))
     if (!injected.ok) return injected
@@ -237,12 +259,33 @@ export class AuthenticationService {
   }
 
   private refineType(snapshot: AuthSnapshot): AuthType {
-    if (snapshot.type === 'bearer' && isJwt(snapshot.token)) return 'jwt'
+    if (snapshot.type === 'bearer' && isJwt(stripBearer(snapshot.token))) return 'jwt'
     return snapshot.type
   }
 
   private expiryOf(token: string): number | null {
-    return isJwt(token) ? decodeJwtExpiryMs(token) : null
+    // apiKey schemes store "Bearer <jwt>"; decode the JWT itself, not the prefix.
+    const raw = stripBearer(token)
+    return isJwt(raw) ? decodeJwtExpiryMs(raw) : null
+  }
+
+  /**
+   * Some schemes (typically apiKey on the `Authorization` header) carry the token
+   * as `Bearer <jwt>` — the prefix is part of the value the API checks. A fresh
+   * token issued by the login endpoint is raw, so re-apply whatever prefix the
+   * existing credential used, or infer it from other saved credentials for this
+   * project, so a refreshed / added token still matches "Authorization: Bearer …".
+   */
+  private async bearerPrefixFor(environmentId: string, previous?: string): Promise<string> {
+    if (previous != null) return bearerPrefixOf(previous)
+    const current = await this.current(environmentId)
+    if (current.ok && current.value?.token) return bearerPrefixOf(current.value.token)
+    const saved = await this.listSaved()
+    if (saved.ok) {
+      const withPrefix = saved.value.find((c) => bearerPrefixOf(c.token) !== '')
+      if (withPrefix) return bearerPrefixOf(withPrefix.token)
+    }
+    return ''
   }
 
   // --- Named credential vault ------------------------------------------------
@@ -347,14 +390,25 @@ export class AuthenticationService {
     if (!label) return err(authWriteError(new Error('A name is required')))
     if (!token) return err(authWriteError(new Error('No token to save')))
 
-    const snapshot: AuthSnapshot = { type: 'bearer', token }
+    // Add-account never touches Swagger's auth UI, so shape the new credential
+    // like the project's existing ones: same type + scheme, and the `Bearer `
+    // prefix if this API expects it (so "Authorization: Bearer <jwt>" is correct).
+    const saved = await this.listSaved()
+    const template = saved.ok ? saved.value[0] : undefined
+    const applied = withBearerPrefix(token, template ? bearerPrefixOf(template.token) : '')
+    const snapshot: AuthSnapshot = {
+      type: template?.type ?? 'bearer',
+      token: applied,
+      schemeName: template?.schemeName,
+    }
     const credential: SavedCredential = {
       id: stableId('cred', this.projectId, label),
       name: label,
       type: this.refineType(snapshot),
-      token,
+      token: applied,
+      schemeName: template?.schemeName,
       createdAt: this.now(),
-      expiresAt: this.expiryOf(token) ?? undefined,
+      expiresAt: this.expiryOf(applied) ?? undefined,
       ...(login ? { login } : {}),
     }
     const written = await this.storage.set(this.vaultKey(credential.id), credential, {

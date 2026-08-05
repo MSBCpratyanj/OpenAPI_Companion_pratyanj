@@ -137,13 +137,20 @@ jobs:
             -e "s|__TAG__|${GITHUB_REF_NAME}|g" \
             RELEASE_NOTES.md
 
-      - name: Create the GitHub Release
+      - name: Create (or refresh) the GitHub Release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            "openapi-companion-${{ steps.version.outputs.version }}.zip" \
+          ZIP="openapi-companion-${{ steps.version.outputs.version }}.zip"
+          # Re-tagging an existing version (to correct a build) must REPLACE the
+          # release, not fail. Delete any existing one for this tag first — but
+          # keep the tag, which the re-push already points at the new commit.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} exists — replacing it."
+            gh release delete "${GITHUB_REF_NAME}" --yes
+          fi
+          gh release create "${GITHUB_REF_NAME}" "$ZIP" \
             --title "OpenAPI Companion ${GITHUB_REF_NAME}" \
             --notes-file RELEASE_NOTES.md \
             --verify-tag
