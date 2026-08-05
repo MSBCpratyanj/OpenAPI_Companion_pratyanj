@@ -56,6 +56,8 @@ function props(over: Partial<DashboardProps> = {}): DashboardProps {
       clear: okAsync(undefined),
       isAutoRefreshEnabled: vi.fn(async () => true),
       setAutoRefreshEnabled: okAsync(undefined),
+      isBearerPrefixEnabled: vi.fn(async () => true),
+      setBearerPrefixEnabled: okAsync(undefined),
       addByLogin: okAsync({}),
       refreshActivity: vi.fn(async () => []),
       refreshNow: okAsync(true),

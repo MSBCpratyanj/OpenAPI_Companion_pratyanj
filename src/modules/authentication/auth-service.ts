@@ -161,12 +161,10 @@ export class AuthenticationService {
       previous?.type === 'jwt' ? 'bearer' : (previous?.type ?? 'bearer')
     const scheme = schemeName ?? previous?.schemeName
 
-    // Re-apply the `Bearer ` prefix the previous token used, so apiKey schemes
-    // that expect "Authorization: Bearer <jwt>" keep working after a refresh.
-    const applied = withBearerPrefix(
-      token,
-      await this.bearerPrefixFor(environmentId, previous?.token),
-    )
+    // Format per the project's Bearer preference (defaults to inference), so
+    // apiKey schemes that expect "Authorization: Bearer <jwt>" keep working while
+    // the user can also force a raw token.
+    const applied = withBearerPrefix(token, await this.bearerPrefix(environmentId))
 
     const snapshot: AuthSnapshot = { type: kind, token: applied, schemeName: scheme }
     const record: AuthRecord = {
@@ -269,15 +267,51 @@ export class AuthenticationService {
     return isJwt(raw) ? decodeJwtExpiryMs(raw) : null
   }
 
+  /** Per-project preference: prepend `Bearer ` to applied tokens, or send raw. */
+  private bearerPrefixKey(): string {
+    return projectKey(this.projectId, 'settings', 'bearer-prefix')
+  }
+
   /**
-   * Some schemes (typically apiKey on the `Authorization` header) carry the token
-   * as `Bearer <jwt>` — the prefix is part of the value the API checks. A fresh
-   * token issued by the login endpoint is raw, so re-apply whatever prefix the
-   * existing credential used, or infer it from other saved credentials for this
-   * project, so a refreshed / added token still matches "Authorization: Bearer …".
+   * Whether applied tokens should carry the `Bearer ` prefix.
+   *
+   * Some schemes (typically apiKey on the `Authorization` header) need
+   * `Authorization: Bearer <jwt>`; others want the raw token. The user can force
+   * either from the Auth panel; until they do, it's inferred from whatever token
+   * is currently authorized / saved, so existing setups keep working.
    */
-  private async bearerPrefixFor(environmentId: string, previous?: string): Promise<string> {
-    if (previous != null) return bearerPrefixOf(previous)
+  async isBearerPrefixEnabled(environmentId: string): Promise<boolean> {
+    const stored = await this.storage.getData<boolean>(this.bearerPrefixKey())
+    if (stored.ok && typeof stored.value === 'boolean') return stored.value
+    return (await this.inferBearerPrefix(environmentId)) !== ''
+  }
+
+  /**
+   * Set the preference and re-apply the token in use in the chosen format, so
+   * Swagger's Authorize updates immediately — not only on the next refresh.
+   */
+  async setBearerPrefixEnabled(environmentId: string, enabled: boolean): Promise<Result<void>> {
+    const written = await this.storage.set(this.bearerPrefixKey(), enabled, { immediate: true })
+    if (!written.ok) return written
+    const current = await this.current(environmentId)
+    if (current.ok && current.value?.token) {
+      // applyToken reads the flag we just stored, so this re-formats the value.
+      await this.applyToken(
+        environmentId,
+        stripBearer(current.value.token),
+        current.value.schemeName,
+      )
+    }
+    return ok(undefined)
+  }
+
+  /** The prefix to apply, per the stored preference (default: inferred). */
+  private async bearerPrefix(environmentId: string): Promise<string> {
+    return (await this.isBearerPrefixEnabled(environmentId)) ? 'Bearer ' : ''
+  }
+
+  /** Infer the prefix from what's currently authorized / saved (the default). */
+  private async inferBearerPrefix(environmentId: string): Promise<string> {
     const current = await this.current(environmentId)
     if (current.ok && current.value?.token) return bearerPrefixOf(current.value.token)
     const saved = await this.listSaved()
@@ -362,13 +396,16 @@ export class AuthenticationService {
     if (!got.value) return err(authWriteError(new Error(`No saved credential ${id}`)))
     const credential = got.value
 
+    // Normalize to the current Bearer preference when authorizing, so switching
+    // accounts always applies the format the user chose.
+    const applied = withBearerPrefix(credential.token, await this.bearerPrefix(environmentId))
     const record: AuthRecord = {
       type: credential.type,
-      token: credential.token,
+      token: applied,
       schemeName: credential.schemeName,
       environmentId,
       updatedAt: this.now(),
-      expiresAt: credential.expiresAt,
+      expiresAt: this.expiryOf(applied) ?? undefined,
     }
     const injected = this.adapter.writeAuth(this.toSnapshot(record))
     if (!injected.ok) return injected
@@ -384,6 +421,7 @@ export class AuthenticationService {
   async addCredential(
     name: string,
     token: string,
+    environmentId: string,
     login?: SavedLogin,
   ): Promise<Result<SavedCredential>> {
     const label = name.trim()
@@ -392,10 +430,10 @@ export class AuthenticationService {
 
     // Add-account never touches Swagger's auth UI, so shape the new credential
     // like the project's existing ones: same type + scheme, and the `Bearer `
-    // prefix if this API expects it (so "Authorization: Bearer <jwt>" is correct).
+    // prefix per the project preference (so "Authorization: Bearer <jwt>" works).
     const saved = await this.listSaved()
     const template = saved.ok ? saved.value[0] : undefined
-    const applied = withBearerPrefix(token, template ? bearerPrefixOf(template.token) : '')
+    const applied = withBearerPrefix(token, await this.bearerPrefix(environmentId))
     const snapshot: AuthSnapshot = {
       type: template?.type ?? 'bearer',
       token: applied,

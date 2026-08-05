@@ -33,6 +33,8 @@ function services() {
       clear: okAsync(),
       isAutoRefreshEnabled: vi.fn(async () => false),
       setAutoRefreshEnabled: okAsync(),
+      isBearerPrefixEnabled: vi.fn(async () => true),
+      setBearerPrefixEnabled: okAsync(),
       addByLogin: okAsync({}),
       refreshActivity: vi.fn(async () => []),
       refreshNow: okAsync(true),

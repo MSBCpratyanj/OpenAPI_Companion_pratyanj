@@ -391,6 +391,59 @@ describe('AuthenticationService credential vault', () => {
       expect(captured.ok && captured.value?.expiresAt).toBe(9_999_999_999_000)
     })
 
+    it('forces the prefix on when the toggle is enabled, off when disabled', async () => {
+      const written: string[] = []
+      const adapter = mockAdapter({
+        readAuth: () => ({ type: 'apiKey', token: JWT, schemeName: 'Bearer' }),
+        writeAuth: (auth) => {
+          written.push(auth.token)
+          return ok(undefined)
+        },
+      })
+      const { service } = setup(adapter)
+
+      // Toggle OFF → applied token is raw, even though the scheme could take Bearer.
+      await service.setBearerPrefixEnabled('default', false)
+      const off = await service.applyToken('default', JWT, 'Bearer')
+      expect(off.ok && off.value.token).toBe(JWT)
+
+      // Toggle ON → applied token carries the prefix.
+      await service.setBearerPrefixEnabled('default', true)
+      const on = await service.applyToken('default', JWT, 'Bearer')
+      expect(on.ok && on.value.token).toBe(`Bearer ${JWT}`)
+    })
+
+    it('re-applies the token in use the moment the toggle changes', async () => {
+      const written: string[] = []
+      const adapter = mockAdapter({
+        readAuth: () => ({ type: 'apiKey', token: `Bearer ${JWT}`, schemeName: 'Bearer' }),
+        writeAuth: (auth) => {
+          written.push(auth.token)
+          return ok(undefined)
+        },
+      })
+      const { service } = setup(adapter)
+      await service.captureFromSwagger('default') // stored as "Bearer <jwt>"
+
+      await service.setBearerPrefixEnabled('default', false)
+      // No refresh needed: the current token was re-applied raw straight away.
+      expect(written.at(-1)).toBe(JWT)
+      const current = await service.current('default')
+      expect(current.ok && current.value?.token).toBe(JWT)
+    })
+
+    it('defaults the toggle to what the current token uses', async () => {
+      const withPrefix = setup(
+        mockAdapter({ readAuth: () => ({ type: 'apiKey', token: `Bearer ${JWT}` }) }),
+      )
+      await withPrefix.service.captureFromSwagger('default')
+      expect(await withPrefix.service.isBearerPrefixEnabled('default')).toBe(true)
+
+      const raw = setup(mockAdapter({ readAuth: () => ({ type: 'jwt', token: JWT }) }))
+      await raw.service.captureFromSwagger('default')
+      expect(await raw.service.isBearerPrefixEnabled('default')).toBe(false)
+    })
+
     it('gives an added account the same prefix its siblings use', async () => {
       const adapter = mockAdapter({
         readAuth: () => ({ type: 'apiKey', token: `Bearer DEV_JWT`, schemeName: 'Bearer' }),
@@ -398,7 +451,7 @@ describe('AuthenticationService credential vault', () => {
       const { service } = setup(adapter)
       await service.saveAs('dev', 'default') // saves "Bearer DEV_JWT"
 
-      const added = await service.addCredential('admin', JWT)
+      const added = await service.addCredential('admin', JWT, 'default')
       expect(added.ok && added.value.token).toBe(`Bearer ${JWT}`)
       expect(added.ok && added.value.schemeName).toBe('Bearer')
     })

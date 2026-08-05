@@ -27,6 +27,8 @@ function mockService(over: Partial<AuthPanelService> = {}): AuthPanelService {
     clear: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
     isAutoRefreshEnabled: vi.fn(async () => false),
     setAutoRefreshEnabled: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
+    isBearerPrefixEnabled: vi.fn(async () => true),
+    setBearerPrefixEnabled: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
     addByLogin: vi.fn(async (): Promise<Result<SavedCredential>> => ok(credential)),
     refreshActivity: vi.fn(async () => []),
     refreshNow: vi.fn(async (): Promise<Result<boolean>> => ok(true)),
@@ -320,5 +322,23 @@ describe('AuthPanel', () => {
     expect(field).toHaveAttribute('type', 'text')
     fireEvent.click(screen.getByRole('button', { name: 'Hide password' }))
     expect(field).toHaveAttribute('type', 'password')
+  })
+
+  // The Bearer toggle lets the user match their API — on for "Bearer <token>",
+  // off for a raw token — and takes effect immediately.
+  it('toggles the Bearer prefix preference', async () => {
+    const service = mockService({
+      current: vi.fn(async () => ok(authorized)),
+      isBearerPrefixEnabled: vi.fn(async () => true),
+    })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+
+    const toggle = await screen.findByRole('checkbox', { name: /Send token as/ })
+    expect(toggle).toBeChecked()
+
+    fireEvent.click(toggle)
+    await waitFor(() =>
+      expect(service.setBearerPrefixEnabled).toHaveBeenCalledWith('default', false),
+    )
   })
 })

@@ -186,6 +186,8 @@ export function createRemoteAuthService(): AuthPanelService {
     clear: (env) => rpcResult('auth.clear', env),
     isAutoRefreshEnabled: () => rpcValue('auth.isAutoRefreshEnabled', false),
     setAutoRefreshEnabled: (on) => rpcResult('auth.setAutoRefreshEnabled', on),
+    isBearerPrefixEnabled: (env) => rpcValue('auth.isBearerPrefixEnabled', true, env),
+    setBearerPrefixEnabled: (env, on) => rpcResult('auth.setBearerPrefixEnabled', env, on),
     loginEndpoint: () => rpcValue('auth.loginEndpoint', null),
     refreshActivity: () => rpcValue('auth.refreshActivity', []),
     addByLogin: (name, username, password) =>

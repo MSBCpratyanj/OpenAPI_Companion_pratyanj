@@ -252,6 +252,9 @@ async function boot(): Promise<void> {
     'auth.clear': ([env]) => auth.clear(env as string),
     'auth.isAutoRefreshEnabled': () => auth.isAutoRefreshEnabled(),
     'auth.setAutoRefreshEnabled': ([on]) => auth.setAutoRefreshEnabled(on as boolean),
+    'auth.isBearerPrefixEnabled': ([env]) => auth.isBearerPrefixEnabled(env as string),
+    'auth.setBearerPrefixEnabled': ([env, on]) =>
+      auth.setBearerPrefixEnabled(env as string, on as boolean),
     'auth.loginEndpoint': () => tokenRefresh.findLoginEndpoint(),
     'auth.refreshActivity': () => tokenRefresh.recentActivity(),
     // Add an account: log in with the given credentials, then keep the issued
@@ -260,7 +263,7 @@ async function boot(): Promise<void> {
       const login = { username: username as string, password: password as string }
       const signedIn = await tokenRefresh.signIn(login)
       if (!signedIn.ok) return signedIn
-      return auth.addCredential(name as string, signedIn.value, login)
+      return auth.addCredential(name as string, signedIn.value, currentEnv, login)
     },
     'auth.refreshNow': ([env]) => tokenRefresh.refreshNow(env as string),
     'auth.activeCredentialName': ([env]) => auth.activeCredentialName(env as string),

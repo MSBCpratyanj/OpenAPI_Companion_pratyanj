@@ -24,6 +24,9 @@ export interface AuthPanelService {
   clear(environmentId: string): Promise<Result<void>>
   isAutoRefreshEnabled(): Promise<boolean>
   setAutoRefreshEnabled(enabled: boolean): Promise<Result<void>>
+  /** Whether applied tokens carry the `Bearer ` prefix (per project). */
+  isBearerPrefixEnabled(environmentId: string): Promise<boolean>
+  setBearerPrefixEnabled(environmentId: string, enabled: boolean): Promise<Result<void>>
   /**
    * Name of the saved request auto-refresh would re-run, or null if none matches.
    * Auto-refresh is inert without one, so the panel states it plainly.
@@ -117,6 +120,7 @@ export function AuthPanel({ service, bus, environmentId, onNavigate }: AuthPanel
   const [loading, setLoading] = useState(true)
   const [revealed, setRevealed] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(false)
+  const [bearerPrefix, setBearerPrefix] = useState(true)
   const [saved, setSaved] = useState<SavedCredential[]>([])
   const [loginTemplate, setLoginTemplate] = useState<string | null>(null)
   const [loginEndpoint, setLoginEndpoint] = useState<string | null>(null)
@@ -202,6 +206,7 @@ export function AuthPanel({ service, bus, environmentId, onNavigate }: AuthPanel
 
   useEffect(() => {
     void service.isAutoRefreshEnabled().then(setAutoRefresh)
+    void service.isBearerPrefixEnabled(environmentId).then(setBearerPrefix)
     void service.loginTemplate(environmentId).then(setLoginTemplate)
     void service.loginEndpoint().then(setLoginEndpoint)
     void service.refreshActivity().then(setActivity)
@@ -211,6 +216,16 @@ export function AuthPanel({ service, bus, environmentId, onNavigate }: AuthPanel
   useEventBus(bus, 'AUTH_RESTORED', () => void load())
   useEventBus(bus, 'AUTH_CLEARED', () => void load())
   useEventBus(bus, 'AUTH_EXPIRED', () => void load())
+
+  const toggleBearerPrefix = async (enabled: boolean) => {
+    setBearerPrefix(enabled) // optimistic
+    const result = await service.setBearerPrefixEnabled(environmentId, enabled)
+    if (!result.ok) {
+      setBearerPrefix(!enabled)
+      bus.publish('NOTIFY', { kind: 'error', message: result.error.message })
+    }
+    await load() // the active token was re-applied in the new format
+  }
 
   const toggleAutoRefresh = async (enabled: boolean) => {
     setAutoRefresh(enabled) // optimistic
@@ -298,7 +313,10 @@ export function AuthPanel({ service, bus, environmentId, onNavigate }: AuthPanel
         ) : (
           <ul className="flex flex-col gap-1">
             {saved.map((cred) => {
-              const active = record?.token === cred.token
+              // Compare ignoring any Bearer prefix, so format changes don't break it.
+              const active =
+                record != null &&
+                record.token.replace(/^bearer\s+/i, '') === cred.token.replace(/^bearer\s+/i, '')
               const expired = cred.expiresAt != null && cred.expiresAt <= Date.now()
               return (
                 <li
@@ -455,6 +473,25 @@ export function AuthPanel({ service, bus, environmentId, onNavigate }: AuthPanel
             Save current
           </Button>
         </div>
+      </div>
+
+      <hr className="border-border" />
+
+      {/* Some APIs authorize with "Authorization: Bearer <token>", others want the
+          raw token. Applies to what's authorized now, on switch, and on refresh. */}
+      <div className="flex flex-col gap-1">
+        <label className="flex items-center gap-2 text-xs text-text">
+          <input
+            type="checkbox"
+            checked={bearerPrefix}
+            onChange={(e) => void toggleBearerPrefix(e.target.checked)}
+          />
+          Send token as “Bearer &lt;token&gt;”
+        </label>
+        <p className="text-[11px] text-muted">
+          On: authorizes with <span className="font-mono">Bearer {'<token>'}</span>. Off: sends the
+          raw token. Applied immediately and on every refresh.
+        </p>
       </div>
 
       <hr className="border-border" />
