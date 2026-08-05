@@ -56,6 +56,42 @@ interface AuthPanelProps {
 
 const EMPTY_LOGIN: SavedLogin = { username: '', password: '' }
 
+/** Password input with a reveal toggle, so a typo is catchable before submit. */
+function PasswordField({
+  value,
+  onChange,
+  label,
+  onEnter,
+}: {
+  value: string
+  onChange: (value: string) => void
+  label: string
+  onEnter?: () => void
+}) {
+  const [shown, setShown] = useState(false)
+  return (
+    <div className="flex items-center gap-1 rounded-md border border-border bg-bg pr-1">
+      <input
+        type={shown ? 'text' : 'password'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onEnter?.()
+        }}
+        placeholder="Password"
+        aria-label={label}
+        className="min-w-0 flex-1 bg-transparent px-2 py-1 text-[11px] text-text focus:outline-none"
+      />
+      <IconButton
+        label={shown ? 'Hide password' : 'Show password'}
+        onClick={() => setShown((v) => !v)}
+      >
+        {shown ? <HideIcon /> : <RevealIcon />}
+      </IconButton>
+    </div>
+  )
+}
+
 const OUTCOME_CLASS: Record<RefreshLogEntry['outcome'], string> = {
   triggered: 'text-text',
   skipped: 'text-muted',
@@ -332,13 +368,11 @@ export function AuthPanel({ service, bus, environmentId, onNavigate }: AuthPanel
                         aria-label={`Email for ${cred.name}`}
                         className="rounded-md border border-border bg-bg px-2 py-1 text-[11px] text-text"
                       />
-                      <input
-                        type="password"
+                      <PasswordField
                         value={form.password}
-                        onChange={(e) => setForm({ ...form, password: e.target.value })}
-                        placeholder="Password"
-                        aria-label={`Password for ${cred.name}`}
-                        className="rounded-md border border-border bg-bg px-2 py-1 text-[11px] text-text"
+                        onChange={(password) => setForm({ ...form, password })}
+                        label={`Password for ${cred.name}`}
+                        onEnter={() => void saveLogin(cred.id)}
                       />
                       <div className="flex justify-end gap-1">
                         <Button variant="secondary" onClick={() => setEditing(null)}>
@@ -385,13 +419,11 @@ export function AuthPanel({ service, bus, environmentId, onNavigate }: AuthPanel
               aria-label="New account email"
               className="rounded-md border border-border bg-bg px-2 py-1 text-[11px] text-text"
             />
-            <input
-              type="password"
+            <PasswordField
               value={newAccount.password}
-              onChange={(e) => setNewAccount({ ...newAccount, password: e.target.value })}
-              placeholder="Password"
-              aria-label="New account password"
-              className="rounded-md border border-border bg-bg px-2 py-1 text-[11px] text-text"
+              onChange={(password) => setNewAccount({ ...newAccount, password })}
+              label="New account password"
+              onEnter={() => void addAccount()}
             />
             <div className="flex justify-end gap-1">
               <Button variant="secondary" onClick={() => setAdding(false)}>

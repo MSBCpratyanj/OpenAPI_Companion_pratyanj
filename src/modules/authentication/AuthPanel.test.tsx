@@ -304,4 +304,21 @@ describe('AuthPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in & save' }))
     expect(service.addByLogin).not.toHaveBeenCalled()
   })
+
+  // Typing a password blind is error-prone; the eye toggle lets it be checked.
+  it('reveals a typed password on demand', async () => {
+    const service = mockService({ current: vi.fn(async () => ok(authorized)) })
+    render(<AuthPanel service={service} bus={new EventBus()} environmentId="default" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Add account with email/ }))
+    const field = screen.getByLabelText('New account password')
+    fireEvent.change(field, { target: { value: 'Dwerp@2026' } })
+
+    // Masked by default, shown after the toggle, hidden again on a second click.
+    expect(field).toHaveAttribute('type', 'password')
+    fireEvent.click(screen.getByRole('button', { name: 'Show password' }))
+    expect(field).toHaveAttribute('type', 'text')
+    fireEvent.click(screen.getByRole('button', { name: 'Hide password' }))
+    expect(field).toHaveAttribute('type', 'password')
+  })
 })
