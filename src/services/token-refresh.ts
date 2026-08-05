@@ -255,7 +255,9 @@ export class TokenRefreshService {
     this.lastAttempt = 0
     this.seenFailures.clear()
     this.note('triggered', 'Manual refresh requested')
-    return this.maybeRefresh(environmentId, true)
+    // `manual` so it runs even with the toggle off and ignores the cooldown —
+    // this button exists precisely to test the flow on demand.
+    return this.maybeRefresh(environmentId, true, true)
   }
 
   async findLoginTemplate(environmentId: string): Promise<TemplateLike | null> {
@@ -415,13 +417,17 @@ export class TokenRefreshService {
     return JSON.stringify({ email: login.username, password: login.password })
   }
 
-  private async maybeRefresh(environmentId: string, force: boolean): Promise<Result<boolean>> {
-    if (!this.enabled()) {
+  private async maybeRefresh(
+    environmentId: string,
+    force: boolean,
+    manual = false,
+  ): Promise<Result<boolean>> {
+    if (!manual && !this.enabled()) {
       this.note('skipped', 'Auto-refresh is turned off')
       return ok(false)
     }
     if (this.running) return ok(false)
-    if (this.now() - this.lastAttempt < this.cooldownMs) {
+    if (!manual && this.now() - this.lastAttempt < this.cooldownMs) {
       this.note('skipped', 'Just tried — waiting for the cooldown before retrying')
       return ok(false)
     }

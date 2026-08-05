@@ -653,4 +653,51 @@ describe('TokenRefreshService.signIn', () => {
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('AUTH_NO_LOGIN_ENDPOINT')
   })
+
+  // The manual "Refresh now" button must run even with the toggle OFF — it exists
+  // to test the flow on demand. It was gated by enabled() and did nothing.
+  it('refreshNow runs even when auto-refresh is disabled', async () => {
+    const LOGIN = 'post /auth/login'
+    let applied: string | null = null
+    let responses: ExecutedResponse[] = []
+    const service = new TokenRefreshService({
+      adapter: {
+        ...mockAdapter(() => responses),
+        listEndpoints: () => [{ endpointId: LOGIN, method: 'post', path: '/auth/login' }],
+        replay: () => {
+          responses = [
+            {
+              endpointId: LOGIN,
+              method: 'post',
+              endpoint: '/auth/login',
+              status: 200,
+              responseBody: '{"data":{"tokens":{"access_token":"FRESH_TOKEN_9999"}}}',
+            },
+          ]
+          return ok(undefined)
+        },
+      },
+      auth: {
+        current: async () => ok({ token: 'OLD' }),
+        applyToken: async (_e, t) => {
+          applied = t
+          return ok({ token: t })
+        },
+      },
+      templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
+      vault: {
+        activeLogin: async () => ({ credentialId: 'c1', username: 'u@x.com', password: 'p' }),
+        updateSavedToken: async () => ok(undefined),
+      },
+      enabled: () => false, // toggle OFF
+      now: () => NOW,
+      setTimeoutFn: (fn) => {
+        fn()
+        return 0
+      },
+    })
+
+    expect(await service.refreshNow('default')).toEqual({ ok: true, value: true })
+    expect(applied).toBe('FRESH_TOKEN_9999')
+  })
 })
