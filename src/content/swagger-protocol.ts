@@ -94,3 +94,88 @@ function schemaFor(snapshot: AuthSnapshot): { type: string; scheme?: string } {
   if (snapshot.type === 'basic') return { type: 'http', scheme: 'basic' }
   return { type: 'http', scheme: 'bearer' }
 }
+
+/** A security scheme from Swagger's spec (`state.auth.definitions[name]`). */
+export interface SchemeDefinition {
+  type?: string
+  scheme?: string
+  name?: string
+  in?: string
+}
+
+/**
+ * Choose which of the API's declared security schemes to authorize.
+ *
+ * Prefers the credential's own scheme name when it's a real definition;
+ * otherwise picks a compatible one from the spec. This is what makes a token
+ * that arrived without accurate scheme info (from a refreshed login or an added
+ * account) still authorize the API's actual scheme.
+ */
+export function chooseScheme(
+  snapshot: AuthSnapshot,
+  defs: Record<string, SchemeDefinition>,
+): string | undefined {
+  const names = Object.keys(defs)
+  if (snapshot.schemeName && defs[snapshot.schemeName]) return snapshot.schemeName
+  if (snapshot.type === 'basic') {
+    const basic = names.find((n) => defs[n]?.scheme === 'basic')
+    if (basic) return basic
+  }
+  if (snapshot.type === 'apiKey') {
+    const apiKey = names.find((n) => defs[n]?.type === 'apiKey')
+    if (apiKey) return apiKey
+  }
+  return (
+    names.find((n) => defs[n]?.type === 'apiKey') ??
+    names.find((n) => defs[n]?.scheme === 'bearer') ??
+    names[0] ??
+    snapshot.schemeName
+  )
+}
+
+/** The value Swagger's authorize expects for an HTTP scheme (not apiKey). */
+function httpValue(snapshot: AuthSnapshot, def?: SchemeDefinition): unknown {
+  if (snapshot.type === 'basic') {
+    const [username = '', password = ''] = atob(snapshot.token).split(':')
+    return { username, password }
+  }
+  // Non-basic here (basic returned above). An http-bearer scheme adds "Bearer "
+  // itself, so it wants the RAW token; anything else takes the value as-is.
+  const scheme = def?.scheme ?? 'bearer'
+  if (scheme === 'bearer') return snapshot.token.replace(/^bearer\s+/i, '')
+  return snapshot.token
+}
+
+/** How a token should be written, resolved against the API's real schemes. */
+export type AuthWritePlan =
+  | { via: 'apiKey'; name: string; value: string }
+  | { via: 'authorize'; payload: Record<string, unknown> }
+
+/**
+ * Decide how to apply a credential using the API's ACTUAL security schemes,
+ * rather than a shape reconstructed from our stored `type` (which is wrong for
+ * apiKey schemes whose value happens to be a JWT — the case that left Swagger's
+ * Authorize box empty). apiKey → `preauthorizeApiKey`; http → `authorize` with
+ * the real schema. Falls back to the reconstructed payload when the spec's
+ * definitions aren't readable yet (the caller retries as the spec loads).
+ */
+export function planAuthWrite(
+  snapshot: AuthSnapshot,
+  defs: Record<string, SchemeDefinition>,
+): AuthWritePlan {
+  const name = chooseScheme(snapshot, defs)
+  if (!name) return { via: 'authorize', payload: buildAuthorizePayload(snapshot) }
+
+  const def = defs[name]
+  const type = def?.type ?? (snapshot.type === 'apiKey' ? 'apiKey' : 'http')
+  if (type === 'apiKey') {
+    // apiKey header carries the WHOLE value (e.g. "Bearer <jwt>") as-is.
+    return { via: 'apiKey', name, value: snapshot.token }
+  }
+  return {
+    via: 'authorize',
+    payload: {
+      [name]: { name, value: httpValue(snapshot, def), schema: def ?? schemaFor(snapshot) },
+    },
+  }
+}

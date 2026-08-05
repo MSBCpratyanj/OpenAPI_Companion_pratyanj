@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest'
 import {
   BRIDGE_TAG,
   buildAuthorizePayload,
+  chooseScheme,
   extractAuth,
   isInbound,
   isOutbound,
+  planAuthWrite,
   type AuthorizedEntry,
+  type SchemeDefinition,
 } from './swagger-protocol'
 
 describe('extractAuth', () => {
@@ -92,5 +95,67 @@ describe('message guards', () => {
     expect(isInbound({ tag: BRIDGE_TAG, dir: 'to-main', cmd: 'readAuth' })).toBe(false)
     expect(isInbound({ foo: 'bar' })).toBe(false)
     expect(isOutbound(undefined)).toBe(false)
+  })
+})
+
+describe('planAuthWrite', () => {
+  // The regression: an apiKey scheme whose value is a JWT was applied via
+  // authorize() with a reconstructed http/bearer schema, which Swagger ignores —
+  // leaving the Authorize box empty. It must go through preauthorizeApiKey.
+  it('routes an apiKey scheme through preauthorizeApiKey, keeping the full value', () => {
+    const defs: Record<string, SchemeDefinition> = {
+      Authorization: { type: 'apiKey', in: 'header', name: 'Authorization' },
+    }
+    const plan = planAuthWrite(
+      { type: 'jwt', token: 'Bearer eyJ.a.b', schemeName: 'Authorization' },
+      defs,
+    )
+    expect(plan).toEqual({ via: 'apiKey', name: 'Authorization', value: 'Bearer eyJ.a.b' })
+  })
+
+  it('finds the real apiKey scheme even when the stored name/type is wrong', () => {
+    // A refreshed/added token arrives as jwt with no matching scheme name; the
+    // spec's only scheme is apiKey, so that's what must be authorized.
+    const defs: Record<string, SchemeDefinition> = {
+      Bearer: { type: 'apiKey', in: 'header', name: 'Authorization' },
+    }
+    const plan = planAuthWrite({ type: 'jwt', token: 'Bearer eyJ.a.b' }, defs)
+    expect(plan).toEqual({ via: 'apiKey', name: 'Bearer', value: 'Bearer eyJ.a.b' })
+  })
+
+  it('sends a raw token to a genuine http-bearer scheme (Swagger adds Bearer)', () => {
+    const defs: Record<string, SchemeDefinition> = {
+      bearerAuth: { type: 'http', scheme: 'bearer' },
+    }
+    const plan = planAuthWrite(
+      { type: 'bearer', token: 'Bearer eyJ.a.b', schemeName: 'bearerAuth' },
+      defs,
+    )
+    expect(plan).toEqual({
+      via: 'authorize',
+      payload: {
+        bearerAuth: {
+          name: 'bearerAuth',
+          value: 'eyJ.a.b', // prefix stripped
+          schema: { type: 'http', scheme: 'bearer' },
+        },
+      },
+    })
+  })
+
+  it('falls back to a reconstructed payload when the spec has no definitions yet', () => {
+    const plan = planAuthWrite({ type: 'apiKey', token: 'k', schemeName: 'ApiKeyAuth' }, {})
+    // No defs → assume our type; apiKey still routes to preauthorizeApiKey.
+    expect(plan).toEqual({ via: 'apiKey', name: 'ApiKeyAuth', value: 'k' })
+  })
+})
+
+describe('chooseScheme', () => {
+  it('prefers the credential’s own scheme when the spec defines it', () => {
+    const defs: Record<string, SchemeDefinition> = {
+      A: { type: 'apiKey' },
+      B: { type: 'http', scheme: 'bearer' },
+    }
+    expect(chooseScheme({ type: 'jwt', token: 't', schemeName: 'B' }, defs)).toBe('B')
   })
 })
