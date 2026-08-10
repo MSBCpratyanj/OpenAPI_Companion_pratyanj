@@ -95,12 +95,56 @@ function schemaFor(snapshot: AuthSnapshot): { type: string; scheme?: string } {
   return { type: 'http', scheme: 'bearer' }
 }
 
-/** A security scheme from Swagger's spec (`state.auth.definitions[name]`). */
+/** A security scheme from the API spec (OAS2 `securityDefinitions` / OAS3 `securitySchemes`). */
 export interface SchemeDefinition {
   type?: string
   scheme?: string
   name?: string
   in?: string
+}
+
+/**
+ * The API's security schemes, read from Swagger's serialized state.
+ *
+ * They live in the SPEC (`securityDefinitions` for OAS2, `components.
+ * securitySchemes` for OAS3) — NOT under `auth.definitions`, which is empty in
+ * most builds. Reading the wrong slice made every scheme look absent, so writes
+ * fell back to the reconstructed http/bearer payload and an apiKey scheme's
+ * Authorize box stayed empty. Checks resolved + raw spec, then `auth.definitions`
+ * as a last resort, and returns the first non-empty set.
+ */
+export function securityDefinitionsFrom(state: unknown): Record<string, SchemeDefinition> {
+  const s = state as
+    | {
+        spec?: {
+          json?: { securityDefinitions?: unknown; components?: { securitySchemes?: unknown } }
+          resolvedSpec?: {
+            securityDefinitions?: unknown
+            components?: { securitySchemes?: unknown }
+          }
+        }
+        auth?: { definitions?: unknown }
+      }
+    | undefined
+  const candidates = [
+    s?.spec?.resolvedSpec?.components?.securitySchemes,
+    s?.spec?.resolvedSpec?.securityDefinitions,
+    s?.spec?.json?.components?.securitySchemes,
+    s?.spec?.json?.securityDefinitions,
+    s?.auth?.definitions,
+  ]
+  for (const raw of candidates) {
+    if (!raw || typeof raw !== 'object') continue
+    const out: Record<string, SchemeDefinition> = {}
+    for (const [name, def] of Object.entries(raw as Record<string, unknown>)) {
+      if (def && typeof def === 'object') {
+        const d = def as SchemeDefinition
+        out[name] = { type: d.type, scheme: d.scheme, name: d.name, in: d.in }
+      }
+    }
+    if (Object.keys(out).length > 0) return out
+  }
+  return {}
 }
 
 /**

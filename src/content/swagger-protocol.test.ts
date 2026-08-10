@@ -7,6 +7,7 @@ import {
   isInbound,
   isOutbound,
   planAuthWrite,
+  securityDefinitionsFrom,
   type AuthorizedEntry,
   type SchemeDefinition,
 } from './swagger-protocol'
@@ -157,5 +158,68 @@ describe('chooseScheme', () => {
       B: { type: 'http', scheme: 'bearer' },
     }
     expect(chooseScheme({ type: 'jwt', token: 't', schemeName: 'B' }, defs)).toBe('B')
+  })
+})
+
+describe('securityDefinitionsFrom', () => {
+  // The bug: schemes were read from state.auth.definitions (empty in real builds)
+  // instead of the spec, so every scheme looked absent and apiKey writes failed.
+  it('reads OAS2 securityDefinitions from the spec', () => {
+    const state = {
+      spec: {
+        json: {
+          securityDefinitions: { Bearer: { type: 'apiKey', in: 'header', name: 'Authorization' } },
+        },
+      },
+    }
+    expect(securityDefinitionsFrom(state)).toEqual({
+      Bearer: { type: 'apiKey', scheme: undefined, name: 'Authorization', in: 'header' },
+    })
+  })
+
+  it('reads OAS3 components.securitySchemes', () => {
+    const state = {
+      spec: {
+        json: {
+          components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' } } },
+        },
+      },
+    }
+    expect(securityDefinitionsFrom(state).bearerAuth).toMatchObject({
+      type: 'http',
+      scheme: 'bearer',
+    })
+  })
+
+  it('prefers the resolved spec over the raw json', () => {
+    const state = {
+      spec: {
+        resolvedSpec: { securityDefinitions: { A: { type: 'apiKey', name: 'X', in: 'header' } } },
+        json: { securityDefinitions: { B: { type: 'apiKey', name: 'Y', in: 'header' } } },
+      },
+    }
+    expect(Object.keys(securityDefinitionsFrom(state))).toEqual(['A'])
+  })
+
+  it('falls back to auth.definitions, and returns {} when nothing is present', () => {
+    expect(securityDefinitionsFrom({ auth: { definitions: { K: { type: 'apiKey' } } } })).toEqual({
+      K: { type: 'apiKey', scheme: undefined, name: undefined, in: undefined },
+    })
+    expect(securityDefinitionsFrom(undefined)).toEqual({})
+    expect(securityDefinitionsFrom({ spec: { json: {} } })).toEqual({})
+  })
+
+  // End-to-end of the fix: real spec schemes -> the apiKey route with the full value.
+  it('routes an OAS2 apiKey scheme correctly once read from the spec', () => {
+    const state = {
+      spec: {
+        json: {
+          securityDefinitions: { Bearer: { type: 'apiKey', in: 'header', name: 'Authorization' } },
+        },
+      },
+    }
+    const defs = securityDefinitionsFrom(state)
+    const plan = planAuthWrite({ type: 'jwt', token: 'Bearer eyJ.a.b', schemeName: 'Bearer' }, defs)
+    expect(plan).toEqual({ via: 'apiKey', name: 'Bearer', value: 'Bearer eyJ.a.b' })
   })
 })
