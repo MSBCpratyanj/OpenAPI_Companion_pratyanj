@@ -36,6 +36,19 @@ function curl(req: CodeGenRequest): string {
   return parts.join(' \\\n')
 }
 
+function powershell(req: CodeGenRequest): string {
+  // Invoke-RestMethod — single-quoted PowerShell strings escape ' by doubling it.
+  const ps = (v: string) => `'${v.replace(/'/g, "''")}'`
+  const parts = [`Invoke-RestMethod -Method ${req.method.toUpperCase()} -Uri ${ps(req.url)}`]
+  const headerEntries = Object.entries(req.headers)
+  if (headerEntries.length) {
+    const pairs = headerEntries.map(([k, v]) => `${ps(k)} = ${ps(v)}`).join('; ')
+    parts.push(`-Headers @{ ${pairs} }`)
+  }
+  if (req.body) parts.push(`-Body ${ps(req.body)}`)
+  return parts.join(' `\n  ')
+}
+
 function fetchCode(req: CodeGenRequest): string {
   const { json, isJson } = parseBody(req.body)
   const lines = [`await fetch('${req.url}', {`, `  method: '${req.method.toUpperCase()}',`]
@@ -86,6 +99,8 @@ export function generateCode(lang: CodeLang, req: CodeGenRequest): string {
   switch (lang) {
     case 'curl':
       return curl(req)
+    case 'powershell':
+      return powershell(req)
     case 'fetch':
       return fetchCode(req)
     case 'axios':

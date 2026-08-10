@@ -48,6 +48,8 @@ export interface HistoryPanelService {
 interface HistoryPanelProps {
   service: HistoryPanelService
   bus: EventBus
+  /** Origin for building full URLs in the detail view's copy menu. */
+  baseUrl?: string
 }
 
 const METHODS = ['', 'get', 'post', 'put', 'patch', 'delete']
@@ -84,7 +86,7 @@ function lastCalled(timestamp: number): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-export function HistoryPanel({ service, bus }: HistoryPanelProps) {
+export function HistoryPanel({ service, bus, baseUrl }: HistoryPanelProps) {
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [text, setText] = useState('')
@@ -249,6 +251,7 @@ export function HistoryPanel({ service, bus }: HistoryPanelProps) {
         >
           <HistoryDetail
             record={detail}
+            baseUrl={baseUrl}
             // Sibling calls come from the list already loaded here — no extra
             // service call needed, and it stays in sync with the filters above.
             calls={entries.filter((e) => e.endpointId === detail.endpointId)}

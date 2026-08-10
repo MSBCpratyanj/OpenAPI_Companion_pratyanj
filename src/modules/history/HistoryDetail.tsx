@@ -2,14 +2,32 @@ import { useState } from 'react'
 import {
   Badge,
   CopyButton,
+  Menu,
   Tabs,
   type TabDef,
   ClockIcon,
+  CopyIcon,
   RequestIcon,
   ResponseIcon,
 } from '@/components'
+import { copyText } from '@/utils'
+import { generateCode, type CodeLang, type CodeGenRequest } from '@/modules/productivity'
 import type { HistoryEntry, HistoryRecord } from './types'
 import { statusKind } from './status'
+
+/** Copy-as targets offered in the detail view (all derivable from stored data). */
+const CODE_LANGS: { lang: CodeLang; label: string }[] = [
+  { lang: 'curl', label: 'Copy as cURL' },
+  { lang: 'powershell', label: 'Copy as PowerShell' },
+  { lang: 'fetch', label: 'Copy as Fetch' },
+  { lang: 'axios', label: 'Copy as Axios' },
+]
+
+/** Full request URL from the origin + recorded path (path already absolute). */
+function fullUrl(baseUrl: string | undefined, endpoint: string): string {
+  const base = (baseUrl ?? '').replace(/\/+$/, '')
+  return endpoint.startsWith('http') ? endpoint : `${base}${endpoint}`
+}
 
 const TABS: TabDef[] = [
   { id: 'request', label: 'Request', icon: <RequestIcon className="h-3.5 w-3.5" /> },
@@ -87,6 +105,8 @@ export interface HistoryDetailProps {
   calls?: HistoryEntry[]
   /** Load another call of this operation into the inspector. */
   onSelectCall?: (id: string) => void
+  /** Origin for building full URLs / code snippets in the copy menu. */
+  baseUrl?: string
 }
 
 /**
@@ -96,7 +116,7 @@ export interface HistoryDetailProps {
  * times this same operation was called, so repeats are comparable without
  * closing the dialog. Replay / Locate live in the dialog header.
  */
-export function HistoryDetail({ record, calls = [], onSelectCall }: HistoryDetailProps) {
+export function HistoryDetail({ record, calls = [], onSelectCall, baseUrl }: HistoryDetailProps) {
   const [tab, setTab] = useState('request')
   // Wrap by default: the panel is narrow, and long tokens/URLs would otherwise
   // need sideways scrolling. Kept at this level so it survives a tab switch.
@@ -104,6 +124,29 @@ export function HistoryDetail({ record, calls = [], onSelectCall }: HistoryDetai
   const request = prettify(record.requestBody)
   const response = prettify(record.responseBody)
   const toggleWrap = () => setWrap((v) => !v)
+
+  // Everything here is derivable from what history stores (method, path, bodies).
+  // Headers aren't captured (DD-033), so no header/HAR options — see the panel.
+  const url = fullUrl(baseUrl, record.endpoint)
+  const codeReq: CodeGenRequest = {
+    method: record.method,
+    url,
+    headers: record.requestBody ? { 'Content-Type': 'application/json' } : {},
+    body: record.requestBody,
+  }
+  const copyItems = [
+    { label: 'Copy URL', onSelect: () => void copyText(url) },
+    ...CODE_LANGS.map(({ lang, label }) => ({
+      label,
+      onSelect: () => void copyText(generateCode(lang, codeReq)),
+    })),
+    ...(record.requestBody
+      ? [{ label: 'Copy Request body', onSelect: () => void copyText(record.requestBody ?? '') }]
+      : []),
+    ...(record.responseBody
+      ? [{ label: 'Copy Response body', onSelect: () => void copyText(record.responseBody ?? '') }]
+      : []),
+  ]
 
   return (
     <div className="flex flex-col gap-3">
@@ -113,7 +156,15 @@ export function HistoryDetail({ record, calls = [], onSelectCall }: HistoryDetai
           <span className="font-mono text-xs font-semibold uppercase text-muted">
             {record.method}
           </span>
-          <span className="break-all font-mono text-xs text-text">{record.endpoint}</span>
+          <span className="min-w-0 flex-1 break-all font-mono text-xs text-text">
+            {record.endpoint}
+          </span>
+          {/* Copy menu — URL, code snippets, and the stored bodies. */}
+          <Menu
+            label="Copy from this request"
+            trigger={<CopyIcon className="h-4 w-4" />}
+            items={copyItems}
+          />
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
           <span className="inline-flex items-center gap-1">

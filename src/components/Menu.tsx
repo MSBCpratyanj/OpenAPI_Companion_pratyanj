@@ -13,6 +13,8 @@ interface MenuProps {
   /** Accessible label for the trigger (e.g. "Actions for GET /users"). */
   label: string
   items: MenuItem[]
+  /** Trigger glyph; defaults to the "⋮" overflow icon. */
+  trigger?: ReactNode
 }
 
 const MENU_WIDTH = 168
@@ -23,7 +25,7 @@ const MENU_WIDTH = 168
  * `overflow` containers (it escapes the scroll area entirely). Closes on
  * outside-click, Escape, or any scroll. Shadow-DOM-aware.
  */
-export function Menu({ label, items }: MenuProps) {
+export function Menu({ label, items, trigger }: MenuProps) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const anchorRef = useRef<HTMLSpanElement>(null)
@@ -68,7 +70,7 @@ export function Menu({ label, items }: MenuProps) {
   return (
     <span ref={anchorRef} className="inline-flex">
       <IconButton label={label} aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
-        <MoreIcon />
+        {trigger ?? <MoreIcon />}
       </IconButton>
       {open ? (
         <div

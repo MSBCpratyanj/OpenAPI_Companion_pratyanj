@@ -24,7 +24,7 @@ export interface EndpointListItem extends EndpointInfo {
   favorite: boolean
 }
 
-export type CodeLang = 'curl' | 'fetch' | 'axios'
+export type CodeLang = 'curl' | 'powershell' | 'fetch' | 'axios'
 
 /** The pieces a code snippet needs — assembled by the service, formatted by codegen. */
 export interface CodeGenRequest {

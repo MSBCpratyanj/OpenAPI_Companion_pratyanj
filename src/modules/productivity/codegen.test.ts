@@ -60,6 +60,28 @@ describe('generateCode — Axios', () => {
   })
 })
 
+describe('generateCode — PowerShell', () => {
+  it('emits Invoke-RestMethod with method, uri, headers, and body', () => {
+    const out = generateCode('powershell', post)
+    expect(out).toContain('Invoke-RestMethod -Method POST')
+    expect(out).toContain("-Uri 'https://api.example.com/users'")
+    expect(out).toContain('-Headers @{')
+    expect(out).toContain("'Authorization' = 'Bearer TKN'")
+    expect(out).toContain('-Body \'{"name":"Ada"}\'')
+  })
+
+  it('escapes single quotes by doubling them, and omits body/headers when absent', () => {
+    const out = generateCode('powershell', {
+      method: 'get',
+      url: "https://api.example.com/it's",
+      headers: {},
+    })
+    expect(out).toContain("-Uri 'https://api.example.com/it''s'")
+    expect(out).not.toContain('-Headers')
+    expect(out).not.toContain('-Body')
+  })
+})
+
 describe('generateCode — perf', () => {
   it('generates well under the 30 ms budget', () => {
     const start = performance.now()

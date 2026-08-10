@@ -122,7 +122,7 @@ export function PanelOutlet({
   }
 
   if (activeTab === 'history' && historyService && bus) {
-    return <HistoryPanel service={historyService} bus={bus} />
+    return <HistoryPanel service={historyService} bus={bus} baseUrl={project?.originUrl} />
   }
 
   if (activeTab === 'fake-data' && fakeDataService && bus) {

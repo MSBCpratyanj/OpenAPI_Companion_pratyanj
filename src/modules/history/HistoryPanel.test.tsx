@@ -218,4 +218,56 @@ describe('HistoryPanel', () => {
     bus.publish('HISTORY_RECORDED', { recordId: 'h1', endpointId: 'post /users', status: 201 })
     await waitFor(() => expect(screen.getByText('/users')).toBeInTheDocument())
   })
+
+  // Copy menu in the detail view — offers URL, code snippets, and stored bodies
+  // (headers/HAR aren't stored, so aren't offered).
+  it('offers a copy menu that copies a cURL snippet with the full URL', async () => {
+    // jsdom has no execCommand; capture what copyText puts in the textarea.
+    let copied: string | null = null
+    ;(document as unknown as { execCommand: () => boolean }).execCommand = () => {
+      copied = (document.querySelector('textarea') as HTMLTextAreaElement | null)?.value ?? null
+      return true
+    }
+    render(
+      <HistoryPanel
+        service={mockService()}
+        bus={new EventBus()}
+        baseUrl="https://api.example.com"
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'View post /users details' }))
+    await screen.findByRole('dialog', { name: 'Request detail' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy from this request' }))
+    // Menu options present.
+    expect(screen.getByRole('menuitem', { name: 'Copy URL' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Copy as PowerShell' })).toBeInTheDocument()
+    // Headers/HAR are NOT offered (not captured).
+    expect(screen.queryByRole('menuitem', { name: /Headers/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /HAR/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy as cURL' }))
+    expect(copied).toContain("curl -X POST 'https://api.example.com/users'")
+    expect(copied).toContain(`-d '{"a":1}'`)
+  })
+
+  it('copies the full URL from the copy menu', async () => {
+    let copied: string | null = null
+    ;(document as unknown as { execCommand: () => boolean }).execCommand = () => {
+      copied = (document.querySelector('textarea') as HTMLTextAreaElement | null)?.value ?? null
+      return true
+    }
+    render(
+      <HistoryPanel
+        service={mockService()}
+        bus={new EventBus()}
+        baseUrl="https://api.example.com"
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'View post /users details' }))
+    await screen.findByRole('dialog', { name: 'Request detail' })
+    fireEvent.click(screen.getByRole('button', { name: 'Copy from this request' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy URL' }))
+    expect(copied).toBe('https://api.example.com/users')
+  })
 })
