@@ -81,6 +81,16 @@ chrome.commands?.onCommand.addListener((command, tab) => {
   if (command === 'open-side-panel') toggleSidePanel(tab)
 })
 
+// Close the side panel whenever the user switches to a different browser tab.
+// The panel re-opens automatically if the user navigates back to an OpenAPI page
+// via the toolbar icon or keyboard shortcut.
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  const panel = openPanels.get(activeInfo.windowId)
+  if (panel) {
+    panel.postMessage({ type: 'close' } satisfies PanelPortMessage)
+  }
+})
+
 chrome.runtime.onStartup?.addListener(() => {
   console.info(`[${APP_NAME}] service worker started`)
 })
