@@ -32,3 +32,4 @@ npm-debug.log*
 
 # Firefox build output
 dist-firefox/
+web-ext-artifacts/

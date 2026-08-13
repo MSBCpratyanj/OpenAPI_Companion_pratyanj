@@ -90,6 +90,16 @@ npm run build:firefox
 `about:addons` → OpenAPI Companion → **Remove** (or **Remove** in
 `about:debugging` for a temporary add-on).
 
+### Troubleshooting install
+
+- **"This add-on could not be installed because it appears to be corrupt."** You
+  used **Install Add-on From File** in `about:addons`, which on *release* Firefox
+  only accepts a **signed** `.xpi`. For testing, use **Load Temporary Add-on**
+  (2a) with `dist-firefox/manifest.json` instead — no signing. For a permanent
+  install, sign it (2b‑B) or use Developer Edition/Nightly with signatures off
+  (2b‑A). The same error also appears if you pick the folder or `manifest.json`
+  here (this dialog wants a `.zip`/`.xpi`, not a folder).
+
 ## ⚠️ Needs verification in real Firefox (and the likely fixes)
 
 These are the parts CI can't check. Load it and watch the page + extension
