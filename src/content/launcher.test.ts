@@ -44,4 +44,25 @@ describe('mountLauncher', () => {
     remove()
     expect(document.getElementById('oac-launcher-host')).toBeNull()
   })
+
+  // Firefox can't open its sidebar from a page click, so the button shows a hint
+  // pointing to the toolbar / shortcut instead of messaging the background.
+  it('shows a hint (and does not message) on Firefox', () => {
+    const original = navigator.userAgent
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Macintosh) Gecko/20100101 Firefox/128.0',
+      configurable: true,
+    })
+    try {
+      mountLauncher()
+      const hint = document.getElementById('oac-launcher-host')?.shadowRoot?.querySelector('.hint')
+      expect(hint?.classList.contains('show')).toBe(false)
+
+      button()?.click()
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(hint?.classList.contains('show')).toBe(true)
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: original, configurable: true })
+    }
+  })
 })

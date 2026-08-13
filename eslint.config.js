@@ -8,7 +8,18 @@ import globals from 'globals'
 // Flat config (ESLint 9). Enforces the coding standard in
 // planning/16_CODING_STANDARD.md (strict TS, no `any`, no unused vars).
 export default tseslint.config(
-  { ignores: ['dist', 'share', 'coverage', 'node_modules', 'playwright-report', 'test-results'] },
+  {
+    ignores: [
+      'dist',
+      'dist-firefox',
+      'web-ext-artifacts',
+      'share',
+      'coverage',
+      'node_modules',
+      'playwright-report',
+      'test-results',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

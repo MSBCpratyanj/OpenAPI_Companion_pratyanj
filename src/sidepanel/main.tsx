@@ -25,6 +25,7 @@ import {
   createRemoteHistoryService,
 } from './bridge'
 import { STATE_PUSH, PANEL_PORT, type PanelPortMessage } from '@/content/sidepanel-protocol'
+import { closeSelf } from '@/core/sidebar'
 import { PanelShell } from './PanelShell'
 
 /**
@@ -36,7 +37,7 @@ function connectToggle(): void {
   try {
     const port = chrome.runtime.connect({ name: PANEL_PORT })
     port.onMessage.addListener((message: PanelPortMessage) => {
-      if (message.type === 'close') window.close()
+      if (message.type === 'close') closeSelf()
     })
     void chrome.windows.getCurrent().then((win) => {
       if (win.id != null)

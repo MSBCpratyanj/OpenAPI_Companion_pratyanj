@@ -9,6 +9,7 @@ import { APP_NAME } from '@/constants'
 import { bus } from '@/core/events'
 import { MigrationService, chromeLocalArea } from '@/core/storage'
 import { OPEN_PANEL_REQUEST, PANEL_PORT, type PanelPortMessage } from '@/content/sidepanel-protocol'
+import { bindActionToPanel, openPanelFor } from '@/core/sidebar'
 
 async function runMigrations(reason: string): Promise<void> {
   const migrations = new MigrationService({ area: chromeLocalArea(), bus })
@@ -28,10 +29,8 @@ chrome.runtime.onInstalled.addListener((details) => {
   void runMigrations(details.reason)
 })
 
-// Clicking the toolbar icon opens the native side panel (Chrome 114+).
-chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
-  console.error(`[${APP_NAME}] could not set side-panel behavior:`, error)
-})
+// Clicking the toolbar icon opens the panel (Chrome: side panel; Firefox: sidebar).
+bindActionToPanel((error) => console.error(`[${APP_NAME}] could not bind action:`, error))
 
 // Windows whose side panel is currently open → the panel's port, so we can ask
 // it to close itself. Populated while a panel holds a PANEL_PORT connection.
@@ -57,12 +56,7 @@ chrome.runtime.onConnect.addListener((port) => {
  * in-page launcher click, whose gesture carries into this worker).
  */
 function openSidePanel(tab?: chrome.tabs.Tab): void {
-  const options =
-    tab?.id != null ? { tabId: tab.id } : tab?.windowId != null ? { windowId: tab.windowId } : null
-  if (!options) return
-  chrome.sidePanel?.open(options).catch((error) => {
-    console.error(`[${APP_NAME}] could not open side panel:`, error)
-  })
+  openPanelFor(tab, (error) => console.error(`[${APP_NAME}] could not open panel:`, error))
 }
 
 /** Toggle: close the panel if this window already has one open, else open it. */
