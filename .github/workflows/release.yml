@@ -76,11 +76,28 @@ jobs:
             exit 1
           fi
 
-      - name: Package the extension
+      - name: Package the extension (Chrome)
         run: |
           ZIP="openapi-companion-${{ steps.version.outputs.version }}.zip"
           # Zip from inside dist/ so manifest.json lands at the archive root.
           (cd dist && zip -qr "../$ZIP" .)
+          echo "Packaged $ZIP:"
+          unzip -l "$ZIP"
+
+      # Firefox uses a different manifest (sidebar_action, event-page background,
+      # a self-contained MAIN-world bundle). This rewrites dist/ into dist-firefox/
+      # and zips it. Runtime on Firefox is NOT verified in CI (no Firefox) — the
+      # release notes label it experimental and point at FIREFOX.md.
+      - name: Package the extension (Firefox)
+        run: |
+          node scripts/build-firefox.mjs
+          FF_MANIFEST_VERSION="$(node -p "require('./dist-firefox/manifest.json').version")"
+          if [ "$FF_MANIFEST_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::Firefox manifest says $FF_MANIFEST_VERSION, expected ${{ steps.version.outputs.version }}"
+            exit 1
+          fi
+          ZIP="openapi-companion-${{ steps.version.outputs.version }}-firefox.zip"
+          (cd dist-firefox && zip -qr "../$ZIP" .)
           echo "Packaged $ZIP:"
           unzip -l "$ZIP"
 
@@ -90,7 +107,9 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: openapi-companion-${{ steps.version.outputs.version }}
-          path: openapi-companion-${{ steps.version.outputs.version }}.zip
+          path: |
+            openapi-companion-${{ steps.version.outputs.version }}.zip
+            openapi-companion-${{ steps.version.outputs.version }}-firefox.zip
           if-no-files-found: error
 
       - name: Write release notes
@@ -110,6 +129,20 @@ jobs:
 
           Requires **Chrome 116+** (the side panel API). Press <kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd> on a
           docs page for endpoint search.
+
+          ## Install (Firefox — experimental)
+
+          Firefox support is new and not yet verified end-to-end. Requires **Firefox 128+**.
+
+          1. Download **openapi-companion-__VERSION__-firefox.zip** from the Assets below and unzip it.
+          2. Open `about:debugging` → **This Firefox** → **Load Temporary Add-on…**
+          3. Pick the **`manifest.json`** inside the unzipped folder.
+          4. Open a Swagger UI / OpenAPI page and open the panel from the **toolbar icon** or
+             <kbd>Ctrl+Shift+O</kbd> (Firefox can't open its sidebar from the in-page button).
+
+          Temporary add-ons are removed on restart; for a permanent install see
+          [`FIREFOX.md`](__REPO_URL__/blob/__TAG__/FIREFOX.md), which also lists the runtime
+          behaviours still being verified.
 
           ## What it does
 
@@ -143,6 +176,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ZIP="openapi-companion-${{ steps.version.outputs.version }}.zip"
+          FF_ZIP="openapi-companion-${{ steps.version.outputs.version }}-firefox.zip"
           # Re-tagging an existing version (to correct a build) must REPLACE the
           # release, not fail. Delete any existing one for this tag first — but
           # keep the tag, which the re-push already points at the new commit.
@@ -150,7 +184,7 @@ jobs:
             echo "Release ${GITHUB_REF_NAME} exists — replacing it."
             gh release delete "${GITHUB_REF_NAME}" --yes
           fi
-          gh release create "${GITHUB_REF_NAME}" "$ZIP" \
+          gh release create "${GITHUB_REF_NAME}" "$ZIP" "$FF_ZIP" \
             --title "OpenAPI Companion ${GITHUB_REF_NAME}" \
             --notes-file RELEASE_NOTES.md \
             --verify-tag
