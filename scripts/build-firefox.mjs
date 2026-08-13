@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, rmSync, cpSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import esbuild from 'esbuild'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const src = resolve(root, 'dist')
@@ -31,7 +32,29 @@ if (!existsSync(resolve(src, 'manifest.json'))) {
 rmSync(out, { recursive: true, force: true })
 cpSync(src, out, { recursive: true })
 
+// The MAIN-world content script (writes into Swagger's window.ui) can't use
+// crxjs's dynamic-import loader on Firefox: the page context is not allowed to
+// `import()` a moz-extension:// resource, so the script never runs and auth is
+// never written. Bundle it into ONE self-contained IIFE and reference it
+// directly (no import()), which runs inline in Firefox's MAIN world.
+const MAIN_WORLD_FILE = 'firefox-main-world.js'
+await esbuild.build({
+  entryPoints: [resolve(root, 'src/content/main-world.ts')],
+  bundle: true,
+  format: 'iife',
+  target: ['firefox128'],
+  alias: { '@': resolve(root, 'src') },
+  outfile: resolve(out, MAIN_WORLD_FILE),
+  legalComments: 'none',
+  logLevel: 'warning',
+})
+
 const manifest = JSON.parse(readFileSync(resolve(src, 'manifest.json'), 'utf8'))
+
+// Point the world:"MAIN" content script at the self-contained bundle.
+for (const cs of manifest.content_scripts ?? []) {
+  if (cs.world === 'MAIN') cs.js = [MAIN_WORLD_FILE]
+}
 
 // 1. Chrome-only keys.
 delete manifest.minimum_chrome_version
