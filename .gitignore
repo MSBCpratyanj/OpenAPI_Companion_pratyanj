@@ -29,3 +29,6 @@ npm-debug.log*
 .DS_Store
 .idea/
 *.swp
+
+# Firefox build output
+dist-firefox/

@@ -1,0 +1,65 @@
+# Firefox support (work in progress)
+
+The extension is built for Chrome (MV3, `@crxjs/vite-plugin`). This documents the
+Firefox port: what's done, how to build/load it, and — importantly — the runtime
+behaviours that still need verifying in a real Firefox, since there's no Firefox
+in CI.
+
+## What's done
+
+- **Sidebar API shim** (`src/core/sidebar.ts`) — the background worker and the
+  panel talk to this instead of `chrome.sidePanel`, so Firefox routes to
+  `browser.sidebarAction`. Chrome behaviour is unchanged. Unit-tested both ways.
+- **Firefox manifest build** (`scripts/build-firefox.mjs`, `npm run build:firefox`)
+  — copies the Chrome `dist/` to `dist-firefox/` and rewrites the manifest:
+  `side_panel` → `sidebar_action`, service worker → event-page `background.scripts`,
+  drops `sidePanel`/`minimum_chrome_version`, adds `browser_specific_settings.gecko`
+  (`strict_min_version: 128` — required for `world:"MAIN"` content scripts).
+
+## Build & load
+
+```bash
+npm run build:firefox      # emits dist-firefox/
+```
+
+Firefox → `about:debugging` → **This Firefox** → **Load Temporary Add-on** →
+select `dist-firefox/manifest.json`. (Temporary add-ons are removed on restart.)
+
+Optional lint/run with web-ext:
+
+```bash
+npx web-ext lint -s dist-firefox
+npx web-ext run  -s dist-firefox   # launches a Firefox with it loaded
+```
+
+## ⚠️ Needs verification in real Firefox (and the likely fixes)
+
+These are the parts CI can't check. Load it and watch the page + extension
+consoles.
+
+1. **crxjs content-script loaders (highest risk).** crxjs injects content scripts
+   via small loader files that dynamically `import()` the real chunk. That's a
+   Chrome-oriented mechanism and may not run in Firefox. **Check:** on a Swagger
+   page the console should log `[OpenAPI Companion] content agent loaded`. If it
+   doesn't, the content scripts aren't executing — the fix is a Firefox-native
+   build (e.g. `vite-plugin-web-extension`) or non-loader content scripts.
+2. **Background as an event page.** The manifest points `background.scripts` at
+   crxjs's `service-worker-loader.js` (a module). **Check:** on install, the
+   background console logs the migration line. If not, the background isn't
+   loading as an event page.
+3. **`world:"MAIN"` content script** (reads Swagger's `window.ui`). Needs Firefox
+   **128+**. **Check:** console logs `main-world active; Swagger object found`.
+4. **Sidebar open/close/toggle.** **Check:** toolbar icon opens the sidebar;
+   `⌘⇧O` / `Ctrl+Shift+O` toggles it; switching tabs closes it; the in-page
+   launcher button opens it. These map to `sidebarAction` and have stricter
+   user-gesture rules than Chrome's `sidePanel`.
+5. **Panel ↔ page messaging** (`tabs.sendMessage` needs host permission). **Check:**
+   the panel shows the project/auth/history rather than "No OpenAPI page
+   connected".
+
+## Not yet done
+
+- A Firefox entry in the release workflow (packaging a signed/unsigned `.xpi`).
+- Firefox E2E (Playwright is Chromium-only here; use `web-ext` locally).
+- If the crxjs loaders don't run on Firefox (item 1), migrating the build to a
+  cross-browser tool is the clean fix — bigger change, tracked separately.
