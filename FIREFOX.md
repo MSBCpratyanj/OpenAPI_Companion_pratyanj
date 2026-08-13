@@ -117,10 +117,15 @@ consoles.
    loading as an event page.
 3. **`world:"MAIN"` content script** (reads Swagger's `window.ui`). Needs Firefox
    **128+**. **Check:** console logs `main-world active; Swagger object found`.
-4. **Sidebar open/close/toggle.** **Check:** toolbar icon opens the sidebar;
-   `⌘⇧O` / `Ctrl+Shift+O` toggles it; switching tabs closes it; the in-page
-   launcher button opens it. These map to `sidebarAction` and have stricter
-   user-gesture rules than Chrome's `sidePanel`.
+4. **Sidebar open/close/toggle.** **Check:** the **toolbar icon** opens the
+   sidebar and `⌘⇧O` / `Ctrl+Shift+O` toggles it; switching tabs closes it.
+   These map to `sidebarAction` and have stricter user-gesture rules than
+   Chrome's `sidePanel`.
+   - **Known limitation:** the **in-page launcher button cannot open the sidebar
+     on Firefox.** `sidebarAction.open()` must run inside a direct user-input
+     handler, and a click relayed to the background doesn't qualify (content
+     scripts can't call `sidebarAction` either). On Firefox the button shows a
+     hint pointing to the toolbar icon / shortcut instead. Chrome is unaffected.
 5. **Panel ↔ page messaging** (`tabs.sendMessage` needs host permission). **Check:**
    the panel shows the project/auth/history rather than "No OpenAPI page
    connected".
