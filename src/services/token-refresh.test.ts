@@ -701,3 +701,203 @@ describe('TokenRefreshService.signIn', () => {
     expect(applied).toBe('FRESH_TOKEN_9999')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-retry after 401 refresh
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('TokenRefreshService — auto-retry after successful refresh', () => {
+  const LOGIN = 'post /auth/login'
+  const FAILING = 'get /projects'
+  const NEW_TOKEN_RETRY = 'eyJhbGciOi.PAYLOAD.RETRY'
+
+  /** Failing 401 response — what triggers noticeResponses() to act. */
+  const failing401: ExecutedResponse = {
+    endpointId: FAILING,
+    method: 'get',
+    endpoint: '/projects',
+    status: 401,
+    responseBody: '{"detail":"Unauthorized"}',
+  }
+
+  /**
+   * An adapter that:
+   * - starts with the failing 401 (so noticeResponses can detect it)
+   * - switches to the login 200 once loginDone is set
+   * - records all replay() calls
+   */
+  function replayTracker(loginDoneRef: { value: boolean }) {
+    const calls: Array<{ id: string; body: string | undefined }> = []
+    const adapter: SwaggerAdapter = {
+      ...mockAdapter(() =>
+        loginDoneRef.value
+          ? [{ endpointId: LOGIN, method: 'post', endpoint: '/auth/login', status: 200,
+               responseBody: JSON.stringify({ access_token: NEW_TOKEN_RETRY }) }]
+          : [failing401],
+      ),
+      listEndpoints: () => [
+        { endpointId: LOGIN, method: 'post', path: '/auth/login' },
+        { endpointId: FAILING, method: 'get', path: '/projects' },
+      ],
+      readOpenRequests: () => [{ endpointId: FAILING, method: 'get', body: '{}' }],
+      replay: (id, body) => {
+        calls.push({ id, body })
+        return ok(undefined)
+      },
+    }
+    return { adapter, calls }
+  }
+
+  it('replays the failing endpoint after a successful credential-based refresh', async () => {
+    const loginDoneRef = { value: false }
+    const { adapter, calls } = replayTracker(loginDoneRef)
+
+    const service = new TokenRefreshService({
+      adapter,
+      auth: {
+        current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000, schemeName: 'bearerAuth' }),
+        applyToken: async (_e, t) => ok({ token: t }),
+      },
+      templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
+      vault: {
+        activeLogin: async () => ({ credentialId: 'c1', username: 'user@test.com', password: 'pw' }),
+        updateSavedToken: async () => ok(undefined),
+      },
+      now: () => NOW,
+      cooldownMs: 0,
+      setTimeoutFn: (fn) => { loginDoneRef.value = true; fn(); return 0 },
+    })
+
+    await service.noticeResponses('default')
+
+    // replay() is called once for the login (via adapter.replay inside loginWithCredentials),
+    // and once for the failing endpoint retry.
+    expect(calls.some((c) => c.id === FAILING)).toBe(true)
+  })
+
+  it('replays the failing endpoint after a successful template-based refresh', async () => {
+    const loginDoneRef = { value: false }
+    const { adapter, calls } = replayTracker(loginDoneRef)
+
+    const service = new TokenRefreshService({
+      adapter,
+      auth: {
+        current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000, schemeName: 'bearerAuth' }),
+        applyToken: async (_e, t) => ok({ token: t }),
+      },
+      templates: {
+        listTemplates: async () =>
+          ok([{ templateId: 't1', name: 'login', endpointId: LOGIN, environmentId: 'default' }]),
+        applyTemplate: async () => { loginDoneRef.value = true; return ok(undefined) },
+      },
+      now: () => NOW,
+      cooldownMs: 0,
+      setTimeoutFn: (fn) => { fn(); return 0 },
+    })
+
+    await service.noticeResponses('default')
+
+    expect(calls.some((c) => c.id === FAILING)).toBe(true)
+  })
+
+  it('skips the retry when retryRequest returns false', async () => {
+    const loginDoneRef = { value: false }
+    const { adapter, calls } = replayTracker(loginDoneRef)
+
+    const service = new TokenRefreshService({
+      adapter,
+      auth: {
+        current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000, schemeName: 'bearerAuth' }),
+        applyToken: async (_e, t) => ok({ token: t }),
+      },
+      templates: {
+        listTemplates: async () =>
+          ok([{ templateId: 't1', name: 'login', endpointId: LOGIN, environmentId: 'default' }]),
+        applyTemplate: async () => { loginDoneRef.value = true; return ok(undefined) },
+      },
+      retryRequest: () => false, // ← opt out
+      now: () => NOW,
+      cooldownMs: 0,
+      setTimeoutFn: (fn) => { fn(); return 0 },
+    })
+
+    await service.noticeResponses('default')
+
+    // The failing endpoint must NOT appear in replay calls.
+    expect(calls.some((c) => c.id === FAILING)).toBe(false)
+  })
+
+  it('does NOT retry when the refresh itself fails to find a token', async () => {
+    // Login endpoint returns a 200 with no token — awaitLoginToken times out.
+    const adapter: SwaggerAdapter = {
+      ...mockAdapter(() => [
+        failing401,
+        { endpointId: LOGIN, method: 'post', endpoint: '/auth/login', status: 200, responseBody: '{}' },
+      ]),
+      listEndpoints: () => [
+        { endpointId: LOGIN, method: 'post', path: '/auth/login' },
+        { endpointId: FAILING, method: 'get', path: '/projects' },
+      ],
+      readOpenRequests: () => [{ endpointId: FAILING, method: 'get', body: '{}' }],
+      replay: () => ok(undefined),
+    }
+    const replayCalls: string[] = []
+    const trackedAdapter = {
+      ...adapter,
+      replay: (id: string, _body?: string) => { replayCalls.push(id); return ok(undefined) },
+    }
+
+    const service = new TokenRefreshService({
+      adapter: trackedAdapter,
+      auth: {
+        current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000 }),
+        applyToken: async (_e, t) => ok({ token: t }),
+      },
+      templates: {
+        listTemplates: async () =>
+          ok([{ templateId: 't1', name: 'login', endpointId: LOGIN, environmentId: 'default' }]),
+        applyTemplate: async () => ok(undefined),
+      },
+      now: () => NOW,
+      cooldownMs: 0,
+      setTimeoutFn: (fn) => { fn(); return 0 },
+    })
+
+    await service.noticeResponses('default')
+
+    // The failing endpoint must NOT be retried (the login token was absent).
+    expect(replayCalls.filter((id) => id === FAILING)).toHaveLength(0)
+  })
+
+  it('publishes REQUEST_RETRIED after a successful retry', async () => {
+    const loginDoneRef = { value: false }
+    const bus = new EventBus()
+    const retried: unknown[] = []
+    bus.subscribe('REQUEST_RETRIED', (p) => retried.push(p))
+
+    const { adapter } = replayTracker(loginDoneRef)
+
+    const service = new TokenRefreshService({
+      adapter,
+      auth: {
+        current: async () => ok({ token: 'OLD', expiresAt: NOW - 1000 }),
+        applyToken: async (_e, t) => ok({ token: t }),
+      },
+      templates: {
+        listTemplates: async () =>
+          ok([{ templateId: 't1', name: 'login', endpointId: LOGIN, environmentId: 'default' }]),
+        applyTemplate: async () => { loginDoneRef.value = true; return ok(undefined) },
+      },
+      bus,
+      now: () => NOW,
+      cooldownMs: 0,
+      setTimeoutFn: (fn) => { fn(); return 0 },
+    })
+
+    await service.noticeResponses('default')
+
+    expect(retried).toHaveLength(1)
+    expect(retried[0]).toMatchObject({ endpointId: FAILING, triggeredBy: 'token-refresh' })
+  })
+})
+
