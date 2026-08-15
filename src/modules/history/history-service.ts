@@ -4,6 +4,7 @@ import { MAX_HISTORY_ITEMS, MAX_SAVED_BODY_BYTES } from '@/constants'
 import type { EventBus } from '@/core/events'
 import type { SwaggerAdapter } from '@/adapters'
 import type { HistoryEntry, HistoryQuery, HistoryRecord } from './types'
+import { settingsKey } from '@/core/storage'
 
 export interface HistoryServiceOptions {
   storage: StorageService
@@ -56,6 +57,7 @@ export class HistoryService {
   private seq = 0
   private captureTimer: ReturnType<typeof setTimeout> | null = null
   private readonly lastSignature = new Map<string, string>()
+  private readonly pendingRetries = new Map<string, HistoryRecord>()
 
   constructor(options: HistoryServiceOptions) {
     this.storage = options.storage
@@ -65,6 +67,11 @@ export class HistoryService {
     this.now = options.now ?? (() => Date.now())
     this.max = options.max ?? MAX_HISTORY_ITEMS
     this.debounceMs = options.debounceMs ?? 400
+
+    // Listen for auth updates to trigger auto-retry
+    if (this.bus) {
+      this.bus.subscribe('AUTH_UPDATED', this.handleAuthUpdated.bind(this))
+    }
   }
 
   private indexKey(): string {
@@ -112,6 +119,27 @@ export class HistoryService {
       endpointId: input.endpointId,
       status: input.status,
     })
+
+    // Check for 401 and auto-retry enabled
+    if (input.status === 401) {
+      const autoRetryKey = settingsKey('auto-retry-after-refresh')
+      const autoRetryGot = await this.storage.getData<boolean>(autoRetryKey)
+      const autoRetryEnabled = !autoRetryGot.ok || autoRetryGot.value !== false
+      if (autoRetryEnabled) {
+        // Show toast to user to refresh token
+        this.bus?.publish('SHOW_TOAST', {
+          message: 'Token expired. Please refresh the token to retry the last request.',
+          environmentId: input.environmentId,
+          // We don't want to show multiple toasts for the same environment, so we use a timeout or track by environmentId
+          // For simplicity, we'll show a toast every time, but the UI can deduplicate.
+          // Alternatively, we can store that we've shown a toast for this environment and clear it on auth update.
+          // We'll leave it to the UI to handle duplicates.
+        })
+        // Store the record for potential retry
+        this.pendingRetries.set(input.environmentId, full)
+      }
+    }
+
     return ok(full)
   }
 
@@ -214,7 +242,26 @@ export class HistoryService {
     const cleared = await this.storage.set(this.indexKey(), [], { immediate: true })
     if (!cleared.ok) return cleared
     this.lastSignature.clear()
+    this.pendingRetries.clear()
     this.bus?.publish('HISTORY_CLEARED', { projectId: this.projectId })
     return ok(undefined)
+  }
+
+  /** Handle auth updated event to trigger auto-retry if pending */
+  private handleAuthUpdated(data: { projectId: string; environmentId: string; type: string }) {
+    // Only consider auth updates for our project
+    if (data.projectId !== this.projectId) return
+    const { environmentId } = data
+    const pending = this.pendingRetries.get(environmentId)
+    if (!pending) return
+    // Remove the pending retry so we don't retry again
+    this.pendingRetries.delete(environmentId)
+    // Replay the request
+    void this.replay(pending.id).then((result) => {
+      if (!result.ok) {
+        // Log error but do not retry again
+        console.warn('Failed to replay request after auth update:', result.error)
+      }
+    })
   }
 }
