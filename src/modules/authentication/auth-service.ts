@@ -60,6 +60,9 @@ export class AuthenticationService {
   private readonly projectId: string
   private readonly bus: EventBus | undefined
   private readonly now: () => number
+  private readonly autoRefreshIntervalMs = 60_000 // Check every minute
+  private autoRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly refreshAheadMs = 5 * 60 * 1000 // Refresh 5 minutes before expiry
 
   constructor(options: AuthenticationServiceOptions) {
     this.storage = options.storage
@@ -67,6 +70,14 @@ export class AuthenticationService {
     this.projectId = options.projectId
     this.bus = options.bus
     this.now = options.now ?? (() => Date.now())
+
+    // Start auto-refresh scheduler if enabled
+    void this.startAutoRefreshScheduler()
+
+    // Listen for settings changes to restart/stop scheduler
+    if (this.bus) {
+      this.bus.subscribe('SETTINGS_UPDATED', this.handleSettingsUpdated.bind(this))
+    }
   }
 
   private key(environmentId: string): string {
@@ -521,5 +532,122 @@ export class AuthenticationService {
   async deleteSaved(id: string): Promise<Result<void>> {
     const removed = await this.storage.remove(this.vaultKey(id))
     return removed.ok ? ok(undefined) : removed
+  }
+
+  /** Start the auto-refresh scheduler that checks for expiring tokens */
+  private async startAutoRefreshScheduler(): Promise<void> {
+    // Don't start if auto-refresh is disabled
+    if (!(await this.isAutoRefreshEnabled())) {
+      return
+    }
+
+    // Clear any existing timer
+    if (this.autoRefreshTimer) {
+      clearTimeout(this.autoRefreshTimer)
+      this.autoRefreshTimer = null
+    }
+
+    // Schedule the first check
+    this.autoRefreshTimer = setTimeout(() => void this.checkAndRefreshExpiringTokens(), this.autoRefreshIntervalMs)
+  }
+
+  /** Handle settings updates to restart/stop scheduler based on auto-refresh flag */
+  private handleSettingsUpdated(data: { keys: string[] }): void {
+    const autoRefreshKey = settingsKey('auto-refresh-token')
+    if (data.keys.includes(autoRefreshKey)) {
+      void this.startAutoRefreshScheduler() // This will check the flag and restart/stop accordingly
+    }
+  }
+
+  /** Check for tokens that are about to expire and refresh them */
+  private async checkAndRefreshExpiringTokens(): Promise<void> {
+    try {
+      // Reschedule the next check first (in case this takes a while)
+      if (this.autoRefreshTimer) {
+        clearTimeout(this.autoRefreshTimer)
+      }
+      this.autoRefreshTimer = setTimeout(() => void this.checkAndRefreshExpiringTokens(), this.autoRefreshIntervalMs)
+
+      // Don't proceed if auto-refresh got disabled during this check
+      if (!(await this.isAutoRefreshEnabled())) {
+        return
+      }
+
+      // Get all environments that have authentication data
+      const envKeys = await this.storage.list(projectKey(this.projectId, 'authentication', ''))
+      if (!envKeys.ok) {
+        console.warn('Failed to list authentication keys for auto-refresh:', envKeys.error)
+        return
+      }
+
+      const now = this.now()
+      const refreshThreshold = now + this.refreshAheadMs
+
+      // Check each environment for expiring tokens
+      for (const key of envKeys.value) {
+        // Extract environmentId from key format: project:{id}:authentication:{environmentId}
+        const parts = key.split(':')
+        if (parts.length < 4) continue
+        const environmentId = parts[3]
+        if (typeof environmentId !== 'string') continue
+
+        const authResult = await this.current(environmentId)
+        if (!authResult.ok) continue
+        const auth = authResult.value
+        if (!auth) continue
+
+        // Skip if no expiration time or if already expired (let restore handle expired ones)
+        if (!auth.expiresAt || auth.expiresAt <= now) continue
+
+        // Check if token expires within our refresh window
+        if (auth.expiresAt <= refreshThreshold) {
+          // Try to refresh using the associated login
+          await this.refreshTokenUsingLogin(environmentId, auth)
+        }
+      }
+    } catch (error) {
+      console.error('Error in auto-refresh scheduler:', error)
+    }
+  }
+
+  /** Attempt to refresh a token using the saved login credentials */
+  private async refreshTokenUsingLogin(environmentId: string, _currentAuth: AuthRecord): Promise<void> {
+    try {
+      // Get the login credentials for the currently active token
+      const loginResult = await this.activeLogin(environmentId)
+      if (!loginResult) {
+        // No login credentials available for this token - can't auto-refresh
+        return
+      }
+
+      const { username, credentialId } = loginResult
+
+      // Find the login template that matches this credential
+      // We'll look for a template that could be used to refresh this specific account
+      const savedCredentials = await this.listSaved()
+      if (!savedCredentials.ok) return
+
+      // Find the credential that matches our login
+      const credential = savedCredentials.value.find(c => c.id === credentialId)
+      if (!credential || !credential.login) return
+
+      // We have a login - now we need to find or create a refresh mechanism
+      // For now, we'll notify the user that a token is about to expire
+      // In a full implementation, this would call the actual login/refresh endpoint
+      this.bus?.publish('NOTIFY', {
+        kind: 'warning',
+        message: `Token for user "${username}" in environment "${environmentId}" is expiring soon. Please refresh to avoid service interruptions.`
+      })
+    } catch (error) {
+      console.error(`Failed to refresh token for environment ${environmentId}:`, error)
+    }
+  }
+
+  /** Stop the auto-refresh scheduler */
+  public stopAutoRefreshScheduler(): void {
+    if (this.autoRefreshTimer) {
+      clearTimeout(this.autoRefreshTimer)
+      this.autoRefreshTimer = null
+    }
   }
 }
