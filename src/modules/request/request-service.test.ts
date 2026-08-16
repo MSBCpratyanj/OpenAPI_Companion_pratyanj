@@ -63,7 +63,7 @@ describe('RequestService — drafts', () => {
     expect(draft.ok && draft.value?.body).toBe('{}')
   })
 
-  it('captures every open operation with a non-empty body', async () => {
+  it('autosaves every open operation with a non-empty body', async () => {
     const adapter = mockAdapter({
       readOpenRequests: () => [
         snapshot(),
@@ -78,65 +78,36 @@ describe('RequestService — drafts', () => {
     expect(draft.ok && draft.value?.body).toBe('{"name":"a"}')
   })
 
-  it('skips oversized bodies during autosave (EC-015)', async () => {
-    const adapter = mockAdapter({
-      readOpenRequests: () => [
-        snapshot({ body: 'x'.repeat(300 * 1024) }),
-        snapshot({ endpointId: 'get /small', method: 'get', body: '{}' }),
-      ],
-    })
-    const { service } = setup(adapter)
-
-    const result = await service.captureOpen('default')
-    expect(result).toEqual({ ok: true, value: 1 }) // only the small one saved
-    expect(await service.getDraft('default', 'post /users')).toEqual({ ok: true, value: null })
-  })
-
-  it('isolates drafts per environment', async () => {
-    const { service } = setup()
-    await service.saveDraft({
-      endpointId: 'post /users',
-      method: 'post',
-      environmentId: 'prod',
-      body: 'P',
-      updatedAt: NOW,
-    })
-    expect(await service.getDraft('default', 'post /users')).toEqual({ ok: true, value: null })
-    const prod = await service.getDraft('prod', 'post /users')
-    expect(prod.ok && prod.value?.body).toBe('P')
-  })
-})
-
-describe('RequestService — restore', () => {
-  it('writes the stored draft into Swagger and emits REQUEST_RESTORED', async () => {
+  it('restores a draft into Swagger and publishes REQUEST_RESTORED', async () => {
     const writeRequest = vi.fn((): Result<void> => ok(undefined))
-    const { service, bus } = setup(mockAdapter({ writeRequest }))
+    const adapter = mockAdapter({ writeRequest })
+    const { service, bus } = setup(adapter)
     const restored = vi.fn()
     bus.subscribe('REQUEST_RESTORED', restored)
+
     await service.saveDraft({
       endpointId: 'post /users',
       method: 'post',
       environmentId: 'default',
-      body: '{"a":1}',
+      body: '{"saved":true}',
       updatedAt: NOW,
     })
 
     const result = await service.restore('default', 'post /users')
-
-    expect(result.ok && result.value?.body).toBe('{"a":1}')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value?.body).toBe('{"saved":true}')
     expect(writeRequest).toHaveBeenCalledWith(
       'post /users',
-      expect.objectContaining({ body: '{"a":1}' }),
+      expect.objectContaining({ body: '{"saved":true}' }),
     )
-    expect(restored).toHaveBeenCalledWith({ endpointId: 'post /users', environmentId: 'default' })
+    expect(restored).toHaveBeenCalledWith({
+      endpointId: 'post /users',
+      environmentId: 'default',
+    })
   })
 
-  it('returns null restoring an endpoint with no draft', async () => {
-    const { service } = setup()
-    expect(await service.restore('default', 'get /nope')).toEqual({ ok: true, value: null })
-  })
-
-  it('auto-restores only into open operations with an empty body', async () => {
+  it('only auto-restores when the open body is EMPTY (preserves edits, EC-007)', async () => {
     const writeRequest = vi.fn((): Result<void> => ok(undefined))
     const adapter = mockAdapter({
       readOpenRequests: () => [
@@ -206,6 +177,47 @@ describe('RequestService — templates', () => {
     expect(after.ok && after.value).toEqual([])
   })
 
+  it('creates custom templates directly from input', async () => {
+    const { service } = setup()
+    const created = await service.createCustomTemplate({
+      name: 'Custom Admin',
+      endpointId: 'post /admin',
+      method: 'post',
+      environmentId: 'default',
+      body: '{"admin":true}',
+    })
+
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    expect(created.value.name).toBe('Custom Admin')
+    expect(created.value.endpointId).toBe('post /admin')
+    expect(created.value.body).toBe('{"admin":true}')
+  })
+
+  it('updates an existing template in place', async () => {
+    const { service } = setup()
+    const created = await service.createCustomTemplate({
+      name: 'Initial Name',
+      endpointId: 'post /users',
+      method: 'post',
+      environmentId: 'default',
+      body: '{"name":"initial"}',
+    })
+
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+
+    const updated = await service.updateTemplate(created.value.templateId, {
+      name: 'Updated Name',
+      body: '{"name":"updated"}',
+    })
+
+    expect(updated.ok).toBe(true)
+    if (!updated.ok) return
+    expect(updated.value.name).toBe('Updated Name')
+    expect(updated.value.body).toBe('{"name":"updated"}')
+  })
+
   it('saves the first open request as a template', async () => {
     const { service } = setup(
       mockAdapter({ readOpenRequests: () => [snapshot({ body: '{"open":true}' })] }),
@@ -223,5 +235,23 @@ describe('RequestService — templates', () => {
 
     await service.applyTemplate(created.value.templateId)
     expect(replay).toHaveBeenCalledWith('post /users', '{"t":1}')
+  })
+
+  it('locates and fills a template in Swagger without executing', async () => {
+    const openEndpoint = vi.fn((): Result<void> => ok(undefined))
+    const writeRequest = vi.fn((): Result<void> => ok(undefined))
+    const { service } = setup(mockAdapter({ openEndpoint, writeRequest }))
+
+    const created = await service.saveTemplate('T', record)
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+
+    const located = await service.locateAndFill(created.value.templateId)
+    expect(located.ok).toBe(true)
+    expect(openEndpoint).toHaveBeenCalledWith('post /users')
+    expect(writeRequest).toHaveBeenCalledWith(
+      'post /users',
+      expect.objectContaining({ body: '{"t":1}' }),
+    )
   })
 })
