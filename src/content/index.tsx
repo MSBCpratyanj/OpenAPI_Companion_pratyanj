@@ -21,6 +21,7 @@ import { RequestService } from '@/modules/request'
 import { EnvironmentService, type EnvironmentInput } from '@/modules/environment'
 import { HistoryService } from '@/modules/history'
 import { ProductivityService } from '@/modules/productivity'
+import { CollectionsService } from '@/modules/collections'
 import { SwaggerBridge } from './swagger-bridge'
 import { mountLauncher } from './launcher'
 import type { PaletteHandle } from './palette' // type-only: the module loads lazily
@@ -77,6 +78,7 @@ async function boot(): Promise<void> {
   const requests = new RequestService({ storage, adapter, projectId: meta.id, bus })
   const environments = new EnvironmentService({ storage, projectId: meta.id, bus })
   const history = new HistoryService({ storage, adapter, projectId: meta.id, bus })
+  const collections = new CollectionsService({ storage, projectId: meta.id, bus })
 
   let currentEnv = meta.lastActiveEnvId
 
@@ -296,7 +298,22 @@ async function boot(): Promise<void> {
     'adapter.openEndpoint': ([id]) => adapter.openEndpoint(id as string),
     'adapter.writeAuth': ([a]) => adapter.writeAuth(a as AuthSnapshot),
     'adapter.clearAuth': () => adapter.clearAuth(),
+    'collections.list': () => collections.listCollections(),
+    'collections.create': ([name]) => collections.createCollection(name as string),
+    'collections.update': ([id, updates]) =>
+      collections.updateCollection(
+        id as string,
+        updates as Parameters<typeof collections.updateCollection>[1],
+      ),
+    'collections.delete': ([id]) => collections.deleteCollection(id as string),
+    'collections.addEndpoint': ([collectionId, endpointId]) =>
+      collections.addEndpointToCollection(collectionId as string, endpointId as string),
+    'collections.removeEndpoint': ([collectionId, endpointId]) =>
+      collections.removeEndpointFromCollection(collectionId as string, endpointId as string),
+    'collections.importTags': ([groups]) =>
+      collections.importTags(groups as Array<{ name: string; endpointIds: string[] }>),
   }
+
 
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     const msg = message as { type?: string; method?: string; args?: unknown[] } | null

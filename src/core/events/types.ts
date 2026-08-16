@@ -41,6 +41,13 @@ export interface EventPayload {
   REQUEST_REPLAYED: { sourceId: string; newRecordId: string }
   HISTORY_CLEARED: { projectId: string }
 
+  // Collections
+  COLLECTION_CREATED: { projectId: string; collectionId: string }
+  COLLECTION_UPDATED: { projectId: string; collectionId: string }
+  COLLECTION_DELETED: { projectId: string; collectionId: string }
+  COLLECTION_ENDPOINT_ADDED: { projectId: string; collectionId: string; endpointId: string }
+  COLLECTION_ENDPOINT_REMOVED: { projectId: string; collectionId: string; endpointId: string }
+
   // Fake data / productivity
   FAKE_DATA_GENERATED: { endpointId: string; fieldCount: number }
   FAVORITE_TOGGLED: { endpointId: string; favorite: boolean }
