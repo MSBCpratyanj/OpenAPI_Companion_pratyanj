@@ -39,6 +39,7 @@ export interface EventPayload {
   // History
   HISTORY_RECORDED: { recordId: string; endpointId: string; status: number }
   REQUEST_REPLAYED: { sourceId: string; newRecordId: string }
+  REQUEST_RETRIED: { endpointId: string; triggeredBy: string }
   HISTORY_CLEARED: { projectId: string }
 
   // Collections

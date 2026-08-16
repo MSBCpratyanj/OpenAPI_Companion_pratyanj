@@ -127,13 +127,9 @@ export class HistoryService {
       const autoRetryEnabled = !autoRetryGot.ok || autoRetryGot.value !== false
       if (autoRetryEnabled) {
         // Show toast to user to refresh token
-        this.bus?.publish('SHOW_TOAST', {
+        this.bus?.publish('NOTIFY', {
+          kind: 'warning',
           message: 'Token expired. Please refresh the token to retry the last request.',
-          environmentId: input.environmentId,
-          // We don't want to show multiple toasts for the same environment, so we use a timeout or track by environmentId
-          // For simplicity, we'll show a toast every time, but the UI can deduplicate.
-          // Alternatively, we can store that we've shown a toast for this environment and clear it on auth update.
-          // We'll leave it to the UI to handle duplicates.
         })
         // Store the record for potential retry
         this.pendingRetries.set(input.environmentId, full)

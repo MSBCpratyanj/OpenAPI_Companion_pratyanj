@@ -94,6 +94,8 @@ export interface TokenRefreshOptions {
   now?: () => number
   /** Feature gate — refresh only runs when this returns true (default: always). */
   enabled?: () => boolean
+  /** Whether to replay the failing request after a successful refresh (default: true). */
+  retryRequest?: () => boolean
   /** Minimum gap between refresh attempts, to break login-failure loops (ms). */
   cooldownMs?: number
   /** Poll interval while waiting for the login response (ms). */
@@ -168,6 +170,7 @@ export class TokenRefreshService {
   private readonly timeoutMs: number
   private readonly schedule: (fn: () => void, ms: number) => unknown
   private readonly enabled: () => boolean
+  private readonly retryRequest: () => boolean
   private readonly cooldownMs: number
   private running = false
   private lastAttempt = 0
@@ -185,6 +188,7 @@ export class TokenRefreshService {
     this.bus = options.bus
     this.now = options.now ?? (() => Date.now())
     this.enabled = options.enabled ?? (() => true)
+    this.retryRequest = options.retryRequest ?? (() => true)
     this.cooldownMs = options.cooldownMs ?? 15_000
     this.pollMs = options.pollMs ?? 400
     this.timeoutMs = options.timeoutMs ?? 12_000
@@ -295,7 +299,17 @@ export class TokenRefreshService {
       if (this.seenFailures.has(sig)) continue
       if (this.seenFailures.size > 50) this.seenFailures.clear()
       this.seenFailures.add(sig)
-      return this.maybeRefresh(environmentId, true)
+      return this.maybeRefresh(environmentId, true).then((refreshed) => {
+        if (refreshed.ok && refreshed.value && this.retryRequest()) {
+          const req = this.adapter.readOpenRequests().find((r) => r.endpointId === res.endpointId)
+          this.adapter.replay(res.endpointId, req?.body)
+          this.bus?.publish('REQUEST_RETRIED', {
+            endpointId: res.endpointId,
+            triggeredBy: 'token-refresh',
+          })
+        }
+        return refreshed
+      })
     }
     return undefined
   }

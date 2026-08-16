@@ -2,7 +2,7 @@ import { ok, err, type Result, type AppError } from '@/types'
 import { projectKey, type StorageService } from '@/core/storage'
 import { MAX_SAVED_BODY_BYTES } from '@/constants'
 import type { EventBus } from '@/core/events'
-import type { RequestSnapshot, SwaggerAdapter } from '@/adapters'
+import type { EndpointInfo, RequestSnapshot, SwaggerAdapter } from '@/adapters'
 import { stableId } from '@/utils'
 import type { RequestRecord, RequestTemplate } from './types'
 
@@ -153,10 +153,11 @@ export class RequestService {
   > {
     const open = this.adapter.readOpenRequests().find((r) => r.body != null && r.body !== '')
     if (!open) return err(noOpenEndpoint())
+    const path = open.endpointId.split(' ').slice(1).join(' ')
     return ok({
       endpointId: open.endpointId,
       method: open.method,
-      endpoint: open.endpoint,
+      endpoint: path || open.endpointId,
     })
   }
 
