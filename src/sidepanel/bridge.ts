@@ -259,7 +259,9 @@ export function createRemoteCollectionsService(): CollectionsPanelService {
     /** Reads from the pushed adapter mirror — no round-trip needed. */
     listEndpoints: () => latestState.adapter.endpoints,
     /** Fire-and-forget: tells the page agent to scroll to + expand the endpoint. */
-    openEndpoint: (endpointId) => { void rpcResult('adapter.openEndpoint', endpointId) },
+    openEndpoint: (endpointId) => {
+      void rpcResult('adapter.openEndpoint', endpointId)
+    },
     /** Execute/replay the endpoint in Swagger. */
     replayEndpoint: (endpointId, body) => rpcResult('adapter.replay', endpointId, body),
     /** Auto-generate / populate collections from Swagger tags. */
@@ -274,5 +276,3 @@ export function createRemoteCollectionsService(): CollectionsPanelService {
     },
   }
 }
-
-

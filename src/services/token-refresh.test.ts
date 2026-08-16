@@ -731,8 +731,15 @@ describe('TokenRefreshService — auto-retry after successful refresh', () => {
     const adapter: SwaggerAdapter = {
       ...mockAdapter(() =>
         loginDoneRef.value
-          ? [{ endpointId: LOGIN, method: 'post', endpoint: '/auth/login', status: 200,
-               responseBody: JSON.stringify({ access_token: NEW_TOKEN_RETRY }) }]
+          ? [
+              {
+                endpointId: LOGIN,
+                method: 'post',
+                endpoint: '/auth/login',
+                status: 200,
+                responseBody: JSON.stringify({ access_token: NEW_TOKEN_RETRY }),
+              },
+            ]
           : [failing401],
       ),
       listEndpoints: () => [
@@ -760,12 +767,20 @@ describe('TokenRefreshService — auto-retry after successful refresh', () => {
       },
       templates: { listTemplates: async () => ok([]), applyTemplate: async () => ok(undefined) },
       vault: {
-        activeLogin: async () => ({ credentialId: 'c1', username: 'user@test.com', password: 'pw' }),
+        activeLogin: async () => ({
+          credentialId: 'c1',
+          username: 'user@test.com',
+          password: 'pw',
+        }),
         updateSavedToken: async () => ok(undefined),
       },
       now: () => NOW,
       cooldownMs: 0,
-      setTimeoutFn: (fn) => { loginDoneRef.value = true; fn(); return 0 },
+      setTimeoutFn: (fn) => {
+        loginDoneRef.value = true
+        fn()
+        return 0
+      },
     })
 
     await service.noticeResponses('default')
@@ -788,11 +803,17 @@ describe('TokenRefreshService — auto-retry after successful refresh', () => {
       templates: {
         listTemplates: async () =>
           ok([{ templateId: 't1', name: 'login', endpointId: LOGIN, environmentId: 'default' }]),
-        applyTemplate: async () => { loginDoneRef.value = true; return ok(undefined) },
+        applyTemplate: async () => {
+          loginDoneRef.value = true
+          return ok(undefined)
+        },
       },
       now: () => NOW,
       cooldownMs: 0,
-      setTimeoutFn: (fn) => { fn(); return 0 },
+      setTimeoutFn: (fn) => {
+        fn()
+        return 0
+      },
     })
 
     await service.noticeResponses('default')
@@ -813,12 +834,18 @@ describe('TokenRefreshService — auto-retry after successful refresh', () => {
       templates: {
         listTemplates: async () =>
           ok([{ templateId: 't1', name: 'login', endpointId: LOGIN, environmentId: 'default' }]),
-        applyTemplate: async () => { loginDoneRef.value = true; return ok(undefined) },
+        applyTemplate: async () => {
+          loginDoneRef.value = true
+          return ok(undefined)
+        },
       },
       retryRequest: () => false, // ← opt out
       now: () => NOW,
       cooldownMs: 0,
-      setTimeoutFn: (fn) => { fn(); return 0 },
+      setTimeoutFn: (fn) => {
+        fn()
+        return 0
+      },
     })
 
     await service.noticeResponses('default')
@@ -832,7 +859,13 @@ describe('TokenRefreshService — auto-retry after successful refresh', () => {
     const adapter: SwaggerAdapter = {
       ...mockAdapter(() => [
         failing401,
-        { endpointId: LOGIN, method: 'post', endpoint: '/auth/login', status: 200, responseBody: '{}' },
+        {
+          endpointId: LOGIN,
+          method: 'post',
+          endpoint: '/auth/login',
+          status: 200,
+          responseBody: '{}',
+        },
       ]),
       listEndpoints: () => [
         { endpointId: LOGIN, method: 'post', path: '/auth/login' },
@@ -844,7 +877,10 @@ describe('TokenRefreshService — auto-retry after successful refresh', () => {
     const replayCalls: string[] = []
     const trackedAdapter = {
       ...adapter,
-      replay: (id: string, _body?: string) => { replayCalls.push(id); return ok(undefined) },
+      replay: (id: string, _body?: string) => {
+        replayCalls.push(id)
+        return ok(undefined)
+      },
     }
 
     const service = new TokenRefreshService({
@@ -860,7 +896,10 @@ describe('TokenRefreshService — auto-retry after successful refresh', () => {
       },
       now: () => NOW,
       cooldownMs: 0,
-      setTimeoutFn: (fn) => { fn(); return 0 },
+      setTimeoutFn: (fn) => {
+        fn()
+        return 0
+      },
     })
 
     await service.noticeResponses('default')
@@ -886,12 +925,18 @@ describe('TokenRefreshService — auto-retry after successful refresh', () => {
       templates: {
         listTemplates: async () =>
           ok([{ templateId: 't1', name: 'login', endpointId: LOGIN, environmentId: 'default' }]),
-        applyTemplate: async () => { loginDoneRef.value = true; return ok(undefined) },
+        applyTemplate: async () => {
+          loginDoneRef.value = true
+          return ok(undefined)
+        },
       },
       bus,
       now: () => NOW,
       cooldownMs: 0,
-      setTimeoutFn: (fn) => { fn(); return 0 },
+      setTimeoutFn: (fn) => {
+        fn()
+        return 0
+      },
     })
 
     await service.noticeResponses('default')
@@ -900,4 +945,3 @@ describe('TokenRefreshService — auto-retry after successful refresh', () => {
     expect(retried[0]).toMatchObject({ endpointId: FAILING, triggeredBy: 'token-refresh' })
   })
 })
-

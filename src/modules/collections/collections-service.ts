@@ -59,9 +59,7 @@ export class CollectionsService {
     if (!collections.ok) return collections
 
     // Check for duplicate names (case-insensitive)
-    const exists = collections.value.some(c =>
-      c.name.toLowerCase() === trimmed.toLowerCase()
-    )
+    const exists = collections.value.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())
     if (exists) {
       return err(collectionsWriteError(new Error('A collection with this name already exists')))
     }
@@ -79,19 +77,22 @@ export class CollectionsService {
     const written = await this.storage.set(this.collectionsKey(), updated, { immediate: true })
     if (!written.ok) return written
 
-    this.bus?.publish('COLLECTION_CREATED', { projectId: this.projectId, collectionId: collection.id })
+    this.bus?.publish('COLLECTION_CREATED', {
+      projectId: this.projectId,
+      collectionId: collection.id,
+    })
     return ok(collection)
   }
 
   /** Update a collection */
   async updateCollection(
     id: string,
-    updates: Partial<Pick<Collection, 'name' | 'endpointIds'>>
+    updates: Partial<Pick<Collection, 'name' | 'endpointIds'>>,
   ): Promise<Result<Collection>> {
     const collections = await this.listCollections()
     if (!collections.ok) return collections
 
-    const index = collections.value.findIndex(c => c.id === id)
+    const index = collections.value.findIndex((c) => c.id === id)
     if (index === -1) {
       return err(collectionsWriteError(new Error(`Collection ${id} not found`)))
     }
@@ -105,7 +106,7 @@ export class CollectionsService {
       }
       // Check for duplicate names (excluding current collection)
       const duplicateExists = collections.value.some(
-        (c, i) => i !== index && c.name.toLowerCase() === trimmed.toLowerCase()
+        (c, i) => i !== index && c.name.toLowerCase() === trimmed.toLowerCase(),
       )
       if (duplicateExists) {
         return err(collectionsWriteError(new Error('A collection with this name already exists')))
@@ -120,7 +121,11 @@ export class CollectionsService {
 
     collection.updatedAt = Date.now()
 
-    const updated = [...collections.value.slice(0, index), collection, ...collections.value.slice(index + 1)]
+    const updated = [
+      ...collections.value.slice(0, index),
+      collection,
+      ...collections.value.slice(index + 1),
+    ]
     const written = await this.storage.set(this.collectionsKey(), updated, { immediate: true })
     if (!written.ok) return written
 
@@ -133,7 +138,7 @@ export class CollectionsService {
     const collections = await this.listCollections()
     if (!collections.ok) return collections
 
-    const index = collections.value.findIndex(c => c.id === id)
+    const index = collections.value.findIndex((c) => c.id === id)
     if (index === -1) {
       return err(collectionsWriteError(new Error(`Collection ${id} not found`)))
     }
@@ -151,7 +156,7 @@ export class CollectionsService {
     const collections = await this.listCollections()
     if (!collections.ok) return collections
 
-    const index = collections.value.findIndex(c => c.id === collectionId)
+    const index = collections.value.findIndex((c) => c.id === collectionId)
     if (index === -1) {
       return err(collectionsWriteError(new Error(`Collection ${collectionId} not found`)))
     }
@@ -162,7 +167,11 @@ export class CollectionsService {
       collection.endpointIds = [...existingIds, endpointId]
       collection.updatedAt = Date.now()
 
-      const updated = [...collections.value.slice(0, index), collection, ...collections.value.slice(index + 1)]
+      const updated = [
+        ...collections.value.slice(0, index),
+        collection,
+        ...collections.value.slice(index + 1),
+      ]
       const written = await this.storage.set(this.collectionsKey(), updated, { immediate: true })
       if (!written.ok) return written
 
@@ -176,11 +185,14 @@ export class CollectionsService {
   }
 
   /** Remove an endpoint from a collection */
-  async removeEndpointFromCollection(collectionId: string, endpointId: string): Promise<Result<void>> {
+  async removeEndpointFromCollection(
+    collectionId: string,
+    endpointId: string,
+  ): Promise<Result<void>> {
     const collections = await this.listCollections()
     if (!collections.ok) return collections
 
-    const index = collections.value.findIndex(c => c.id === collectionId)
+    const index = collections.value.findIndex((c) => c.id === collectionId)
     if (index === -1) {
       return err(collectionsWriteError(new Error(`Collection ${collectionId} not found`)))
     }
@@ -189,12 +201,14 @@ export class CollectionsService {
     const existingIds = collection.endpointIds ?? []
     const endpointIndex = existingIds.indexOf(endpointId)
     if (endpointIndex !== -1) {
-      collection.endpointIds = existingIds.filter(
-        (_id, i) => i !== endpointIndex
-      )
+      collection.endpointIds = existingIds.filter((_id, i) => i !== endpointIndex)
       collection.updatedAt = Date.now()
 
-      const updated = [...collections.value.slice(0, index), collection, ...collections.value.slice(index + 1)]
+      const updated = [
+        ...collections.value.slice(0, index),
+        collection,
+        ...collections.value.slice(index + 1),
+      ]
       const written = await this.storage.set(this.collectionsKey(), updated, { immediate: true })
       if (!written.ok) return written
 
@@ -212,15 +226,13 @@ export class CollectionsService {
     const collections = await this.listCollections()
     if (!collections.ok) return collections
 
-    const matched = collections.value.filter(c =>
-      (c.endpointIds ?? []).includes(endpointId)
-    )
+    const matched = collections.value.filter((c) => (c.endpointIds ?? []).includes(endpointId))
     return ok(matched)
   }
 
   /** Import / generate collections from Swagger tags */
   async importTags(
-    tagGroups: Array<{ name: string; endpointIds: string[] }>
+    tagGroups: Array<{ name: string; endpointIds: string[] }>,
   ): Promise<Result<{ created: number; updated: number }>> {
     const list = await this.listCollections()
     if (!list.ok) return list
@@ -234,9 +246,7 @@ export class CollectionsService {
       const name = group.name.trim()
       if (!name) continue
 
-      const existingIndex = current.findIndex(
-        c => c.name.toLowerCase() === name.toLowerCase()
-      )
+      const existingIndex = current.findIndex((c) => c.name.toLowerCase() === name.toLowerCase())
 
       if (existingIndex >= 0) {
         const existing = current[existingIndex]!

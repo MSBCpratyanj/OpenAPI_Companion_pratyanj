@@ -314,7 +314,6 @@ async function boot(): Promise<void> {
       collections.importTags(groups as Array<{ name: string; endpointIds: string[] }>),
   }
 
-
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     const msg = message as { type?: string; method?: string; args?: unknown[] } | null
     if (msg?.type !== RPC_REQUEST || typeof msg.method !== 'string') return false

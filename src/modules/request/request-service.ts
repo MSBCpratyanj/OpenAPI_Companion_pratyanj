@@ -148,7 +148,9 @@ export class RequestService {
   }
 
   /** Get the currently open operation (the one with non-empty body) */
-  async getCurrentEndpoint(): Promise<Result<{ endpointId: string; method: string; endpoint: string }>> {
+  async getCurrentEndpoint(): Promise<
+    Result<{ endpointId: string; method: string; endpoint: string }>
+  > {
     const open = this.adapter.readOpenRequests().find((r) => r.body != null && r.body !== '')
     if (!open) return err(noOpenEndpoint())
     return ok({

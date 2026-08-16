@@ -473,17 +473,26 @@ export function CollectionsPanel({ service, bus }: CollectionsPanelProps) {
                             </div>
                             {available.length === 0 ? (
                               <p className="py-1 text-[11px] italic text-muted">
-                                {endpointQuery ? 'No matching endpoints.' : 'All endpoints already added.'}
+                                {endpointQuery
+                                  ? 'No matching endpoints.'
+                                  : 'All endpoints already added.'}
                               </p>
                             ) : (
                               <ul className="max-h-44 overflow-y-auto rounded border border-border bg-bg">
                                 {available.map((ep) => (
-                                  <li key={ep.endpointId} className="border-b border-border/50 last:border-b-0">
+                                  <li
+                                    key={ep.endpointId}
+                                    className="border-b border-border/50 last:border-b-0"
+                                  >
                                     <button
                                       type="button"
                                       className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-primary/10 focus:bg-primary/10 focus:outline-none"
                                       onClick={() => void addEndpoint(col.id, ep.endpointId)}
-                                      title={ep.summary ? `${ep.endpointId} — ${ep.summary}` : ep.endpointId}
+                                      title={
+                                        ep.summary
+                                          ? `${ep.endpointId} — ${ep.summary}`
+                                          : ep.endpointId
+                                      }
                                     >
                                       <span
                                         className={`w-12 shrink-0 text-right font-mono text-[10px] font-bold uppercase ${methodClass(ep.method)}`}
@@ -530,15 +539,10 @@ export function CollectionsPanel({ service, bus }: CollectionsPanelProps) {
 
       {/* ── Multi-select Tag Import Dialog ── */}
       {showTagModal && (
-        <Dialog
-          title="Import Collections from Swagger Tags"
-          onClose={() => setShowTagModal(false)}
-        >
+        <Dialog title="Import Collections from Swagger Tags" onClose={() => setShowTagModal(false)}>
           <div className="flex flex-col gap-3 p-1">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-muted">
-                Select which tags to import as collections:
-              </p>
+              <p className="text-xs text-muted">Select which tags to import as collections:</p>
               <button
                 type="button"
                 className="text-[11px] text-primary hover:underline font-medium"
@@ -624,7 +628,7 @@ export function CollectionsPanel({ service, bus }: CollectionsPanelProps) {
               value={bodyPrompt.body}
               onChange={(e) => setBodyPrompt({ ...bodyPrompt, body: e.target.value })}
               rows={8}
-              placeholder="{\n  &quot;key&quot;: &quot;value&quot;\n}"
+              placeholder='{\n  "key": "value"\n}'
               className="w-full rounded-md border border-border bg-bg p-2 font-mono text-xs text-text focus:outline-none focus:ring-1 focus:ring-primary"
             />
             <div className="flex justify-end gap-2 border-t border-border pt-2">

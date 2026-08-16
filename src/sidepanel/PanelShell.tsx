@@ -75,7 +75,7 @@ export function PanelShell({
   settingsService,
   importExportService,
   collectionsService,
-  swagger
+  swagger,
 }: PanelShellProps) {
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
   const [activeEnv, setActiveEnv] = useState(environmentId)

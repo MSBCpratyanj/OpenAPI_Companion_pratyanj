@@ -548,7 +548,10 @@ export class AuthenticationService {
     }
 
     // Schedule the first check
-    this.autoRefreshTimer = setTimeout(() => void this.checkAndRefreshExpiringTokens(), this.autoRefreshIntervalMs)
+    this.autoRefreshTimer = setTimeout(
+      () => void this.checkAndRefreshExpiringTokens(),
+      this.autoRefreshIntervalMs,
+    )
   }
 
   /** Handle settings updates to restart/stop scheduler based on auto-refresh flag */
@@ -566,7 +569,10 @@ export class AuthenticationService {
       if (this.autoRefreshTimer) {
         clearTimeout(this.autoRefreshTimer)
       }
-      this.autoRefreshTimer = setTimeout(() => void this.checkAndRefreshExpiringTokens(), this.autoRefreshIntervalMs)
+      this.autoRefreshTimer = setTimeout(
+        () => void this.checkAndRefreshExpiringTokens(),
+        this.autoRefreshIntervalMs,
+      )
 
       // Don't proceed if auto-refresh got disabled during this check
       if (!(await this.isAutoRefreshEnabled())) {
@@ -611,7 +617,10 @@ export class AuthenticationService {
   }
 
   /** Attempt to refresh a token using the saved login credentials */
-  private async refreshTokenUsingLogin(environmentId: string, _currentAuth: AuthRecord): Promise<void> {
+  private async refreshTokenUsingLogin(
+    environmentId: string,
+    _currentAuth: AuthRecord,
+  ): Promise<void> {
     try {
       // Get the login credentials for the currently active token
       const loginResult = await this.activeLogin(environmentId)
@@ -628,7 +637,7 @@ export class AuthenticationService {
       if (!savedCredentials.ok) return
 
       // Find the credential that matches our login
-      const credential = savedCredentials.value.find(c => c.id === credentialId)
+      const credential = savedCredentials.value.find((c) => c.id === credentialId)
       if (!credential || !credential.login) return
 
       // We have a login - now we need to find or create a refresh mechanism
@@ -636,7 +645,7 @@ export class AuthenticationService {
       // In a full implementation, this would call the actual login/refresh endpoint
       this.bus?.publish('NOTIFY', {
         kind: 'warning',
-        message: `Token for user "${username}" in environment "${environmentId}" is expiring soon. Please refresh to avoid service interruptions.`
+        message: `Token for user "${username}" in environment "${environmentId}" is expiring soon. Please refresh to avoid service interruptions.`,
       })
     } catch (error) {
       console.error(`Failed to refresh token for environment ${environmentId}:`, error)
