@@ -35,6 +35,10 @@ import {
   Crosshair,
   Play,
   Folder,
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Zap,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -92,6 +96,10 @@ export const CodeIcon = make(Code)
 export const MoreIcon = make(MoreVertical)
 export const LocateIcon = make(Crosshair)
 export const ReplayIcon = make(Play)
+export const ChevronDownIcon = make(ChevronDown)
+export const ChevronRightIcon = make(ChevronRight)
+export const PlusIcon = make(Plus)
+export const ZapIcon = make(Zap)
 
 // Toast kinds
 export const ToastSuccessIcon = make(CircleCheck)
