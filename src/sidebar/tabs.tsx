@@ -7,6 +7,7 @@ import {
   HistoryIcon,
   DataIcon,
   SettingsIcon,
+  CollectionsIcon,
 } from '@/components'
 
 const ICON_CLASS = 'h-3.5 w-3.5'
@@ -19,6 +20,7 @@ export const TABS: TabDef[] = [
   { id: 'environments', label: 'Env', icon: <EnvIcon className={ICON_CLASS} /> },
   { id: 'history', label: 'History', icon: <HistoryIcon className={ICON_CLASS} /> },
   { id: 'fake-data', label: 'Data', icon: <DataIcon className={ICON_CLASS} /> },
+  { id: 'collections', label: 'Collections', icon: <CollectionsIcon className={ICON_CLASS} /> },
   { id: 'settings', label: 'Settings', icon: <SettingsIcon className={ICON_CLASS} /> },
 ]
 

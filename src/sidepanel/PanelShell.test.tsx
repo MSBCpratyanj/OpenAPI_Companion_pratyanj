@@ -88,8 +88,22 @@ function services() {
       previewImport: vi.fn(() => ok({} as any)),
       applyImport: okAsync({ imported: 0, skipped: 0, renamed: 0 }),
     } as any,
+    collectionsService: {
+      listCollections: okAsync([]),
+      createCollection: okAsync({} as any),
+      updateCollection: okAsync({} as any),
+      deleteCollection: okAsync(),
+      addEndpointToCollection: okAsync(),
+      removeEndpointFromCollection: okAsync(),
+      listEndpoints: () => [],
+      openEndpoint: vi.fn(),
+      replayEndpoint: okAsync(),
+      importTags: okAsync({ created: 0, updated: 0 }),
+      getStoredRequestBody: () => null,
+    } as any,
   }
 }
+
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 async function setup(over: { staleTab?: boolean } = {}) {
