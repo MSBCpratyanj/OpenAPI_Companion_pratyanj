@@ -21,6 +21,12 @@ const notFound = (endpointId: string): AppError => ({
   recoverable: true,
 })
 
+const noOpenEndpoint = (): AppError => ({
+  code: 'REQUEST_NO_OPEN_ENDPOINT',
+  message: 'No operation is currently open',
+  recoverable: true,
+})
+
 /**
  * Auto-saves and restores request data per endpoint + environment, and manages
  * named templates (FR-005/006, FDD-002). v1 focuses on the request body.
@@ -139,6 +145,27 @@ export class RequestService {
     const open = this.adapter.readOpenRequests().find((r) => r.body != null && r.body !== '')
     if (!open) return ok(null)
     return this.saveTemplate(name, this.toRecord(open, environmentId))
+  }
+
+  /** Get the currently open operation (the one with non-empty body) */
+  async getCurrentEndpoint(): Promise<Result<{ endpointId: string; method: string; endpoint: string }>> {
+    const open = this.adapter.readOpenRequests().find((r) => r.body != null && r.body !== '')
+    if (!open) return err(noOpenEndpoint())
+    return ok({
+      endpointId: open.endpointId,
+      method: open.method,
+      endpoint: open.endpoint,
+    })
+  }
+
+  /** List all currently open operations (endpoints that have been expanded) */
+  async listOpenRequests(): Promise<Result<RequestSnapshot[]>> {
+    return ok(this.adapter.readOpenRequests())
+  }
+
+  /** List all endpoints available in the Swagger document */
+  async listEndpoints(): Promise<Result<EndpointInfo[]>> {
+    return ok(this.adapter.listEndpoints())
   }
 
   async listTemplates(): Promise<Result<RequestTemplate[]>> {

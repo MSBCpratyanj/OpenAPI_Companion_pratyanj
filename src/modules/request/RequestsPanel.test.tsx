@@ -43,7 +43,10 @@ describe('RequestsPanel', () => {
     render(<RequestsPanel service={service} bus={new EventBus()} environmentId="default" />)
     await screen.findByText('No templates yet')
 
-    fireEvent.change(screen.getByPlaceholderText('Template name'), { target: { value: 'My req' } })
+    // Click on-demand save button to open form
+    fireEvent.click(screen.getByRole('button', { name: '+ Save current request as template' }))
+
+    fireEvent.change(screen.getByPlaceholderText('Template name…'), { target: { value: 'My req' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
@@ -56,7 +59,10 @@ describe('RequestsPanel', () => {
     render(<RequestsPanel service={service} bus={new EventBus()} environmentId="default" />)
     await screen.findByText('No templates yet')
 
-    fireEvent.change(screen.getByPlaceholderText('Template name'), { target: { value: 'X' } })
+    // Click on-demand save button to open form
+    fireEvent.click(screen.getByRole('button', { name: '+ Save current request as template' }))
+
+    fireEvent.change(screen.getByPlaceholderText('Template name…'), { target: { value: 'X' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(await screen.findByText(/Open a request/)).toBeInTheDocument()

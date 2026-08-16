@@ -22,6 +22,7 @@ interface RequestsPanelProps {
 export function RequestsPanel({ service, bus, environmentId }: RequestsPanelProps) {
   const [templates, setTemplates] = useState<RequestTemplate[]>([])
   const [loading, setLoading] = useState(true)
+  const [isAdding, setIsAdding] = useState(false)
   const [name, setName] = useState('')
   const [hint, setHint] = useState<string | null>(null)
 
@@ -53,33 +54,72 @@ export function RequestsPanel({ service, bus, environmentId }: RequestsPanelProp
       setHint('Open a request and enter a body in Swagger first.')
       return
     }
+    if (!result.ok) {
+      bus.publish('NOTIFY', { kind: 'error', message: result.error.message })
+      return
+    }
     setName('')
     setHint(null)
+    setIsAdding(false)
   }
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      <div>
-        <label className="text-xs font-medium text-text" htmlFor="oac-tpl-name">
-          Save current request as a template
-        </label>
-        <div className="mt-1 flex gap-2">
-          <input
-            id="oac-tpl-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Template name"
-            className="flex-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          />
-          <Button variant="primary" onClick={() => void saveOpen()} disabled={!name.trim()}>
-            Save
+      {/* ── Save request as template toggle / form ── */}
+      {isAdding ? (
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-surface/30 p-3">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-text" htmlFor="oac-tpl-name">
+              Save current request as a template
+            </label>
+            <button
+              type="button"
+              className="text-[11px] text-muted hover:text-text hover:underline"
+              onClick={() => {
+                setIsAdding(false)
+                setName('')
+                setHint(null)
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <input
+              id="oac-tpl-name"
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void saveOpen()
+              }}
+              placeholder="Template name…"
+              className="flex-1 rounded-md border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            />
+            <Button variant="primary" onClick={() => void saveOpen()} disabled={!name.trim()}>
+              Save
+            </Button>
+          </div>
+          {hint ? <p className="text-xs text-warning">{hint}</p> : null}
+        </div>
+      ) : (
+        <div>
+          <Button
+            variant="secondary"
+            className="w-full text-xs"
+            onClick={() => {
+              setIsAdding(true)
+              setHint(null)
+            }}
+          >
+            + Save current request as template
           </Button>
         </div>
-        {hint ? <p className="mt-1 text-xs text-warning">{hint}</p> : null}
-      </div>
+      )}
 
       <hr className="border-border" />
 
+      {/* ── Template list ── */}
       {loading ? (
         <div className="flex justify-center py-4">
           <Spinner />
@@ -108,7 +148,7 @@ export function RequestsPanel({ service, bus, environmentId }: RequestsPanelProp
                 label={`Delete ${t.name}`}
                 onClick={() => void service.deleteTemplate(t.templateId)}
               >
-                <DeleteIcon />
+                <DeleteIcon className="h-3.5 w-3.5" />
               </IconButton>
             </li>
           ))}
