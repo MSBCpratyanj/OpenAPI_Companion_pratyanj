@@ -4,6 +4,7 @@
 export { Button } from './Button'
 export type { ButtonVariant } from './Button'
 export { IconButton } from './IconButton'
+export { Input } from './Input'
 export { Badge } from './Badge'
 export type { BadgeKind } from './Badge'
 export { Spinner } from './Spinner'
