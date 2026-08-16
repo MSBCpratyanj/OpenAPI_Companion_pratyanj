@@ -12,6 +12,7 @@ import type { AuthPanelService } from '@/modules/authentication'
 import type { RequestPanelService } from '@/modules/request'
 import { BUILTIN_ENVIRONMENTS, type EnvironmentPanelService } from '@/modules/environment'
 import type { HistoryPanelService } from '@/modules/history'
+import type { CollectionsPanelService } from '@/modules/collections'
 import {
   RPC_REQUEST,
   STATE_PUSH,
@@ -244,3 +245,34 @@ export function createRemoteHistoryService(): HistoryPanelService {
     clearProject: () => rpcResult('history.clearProject'),
   }
 }
+
+export function createRemoteCollectionsService(): CollectionsPanelService {
+  return {
+    listCollections: () => rpcResult('collections.list'),
+    createCollection: (name) => rpcResult('collections.create', name),
+    updateCollection: (id, updates) => rpcResult('collections.update', id, updates),
+    deleteCollection: (id) => rpcResult('collections.delete', id),
+    addEndpointToCollection: (collectionId, endpointId) =>
+      rpcResult('collections.addEndpoint', collectionId, endpointId),
+    removeEndpointFromCollection: (collectionId, endpointId) =>
+      rpcResult('collections.removeEndpoint', collectionId, endpointId),
+    /** Reads from the pushed adapter mirror — no round-trip needed. */
+    listEndpoints: () => latestState.adapter.endpoints,
+    /** Fire-and-forget: tells the page agent to scroll to + expand the endpoint. */
+    openEndpoint: (endpointId) => { void rpcResult('adapter.openEndpoint', endpointId) },
+    /** Execute/replay the endpoint in Swagger. */
+    replayEndpoint: (endpointId, body) => rpcResult('adapter.replay', endpointId, body),
+    /** Auto-generate / populate collections from Swagger tags. */
+    importTags: (groups) => rpcResult('collections.importTags', groups),
+    /** Read open or recently executed request body from the mirrored adapter state. */
+    getStoredRequestBody: (endpointId) => {
+      const open = latestState.adapter.openRequests.find((r) => r.endpointId === endpointId)
+      if (open?.body && open.body.trim()) return open.body.trim()
+      const exec = latestState.adapter.executedResponses.find((r) => r.endpointId === endpointId)
+      if (exec?.requestBody && exec.requestBody.trim()) return exec.requestBody.trim()
+      return null
+    },
+  }
+}
+
+

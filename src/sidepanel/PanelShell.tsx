@@ -18,6 +18,7 @@ import type { EnvironmentPanelService } from '@/modules/environment'
 import type { HistoryPanelService } from '@/modules/history'
 import type { FakeDataPanelService } from '@/modules/fake-data'
 import type { SettingsApi, ImportExportApi } from '@/modules/settings'
+import type { CollectionsPanelService } from '@/modules/collections'
 import type { DocStats } from '@/sidebar/Dashboard'
 import { PanelOutlet } from '@/sidebar/PanelOutlet'
 import { TABS, DEFAULT_TAB } from '@/sidebar/tabs'
@@ -49,6 +50,7 @@ export interface PanelShellProps {
   fakeDataService: FakeDataPanelService
   settingsService: SettingsApi
   importExportService: ImportExportApi
+  collectionsService: CollectionsPanelService
   /** Adapter reads for the dashboard's spec summary (version / endpoint count). */
   swagger?: DocStats
 }
@@ -65,7 +67,15 @@ export function PanelShell({
   environmentId,
   onOpenPalette,
   staleTab = false,
-  ...services
+  authService,
+  requestService,
+  environmentService,
+  historyService,
+  fakeDataService,
+  settingsService,
+  importExportService,
+  collectionsService,
+  swagger
 }: PanelShellProps) {
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
   const [activeEnv, setActiveEnv] = useState(environmentId)
@@ -126,18 +136,19 @@ export function PanelShell({
           activeTab={activeTab}
           project={project}
           bus={bus}
-          authService={services.authService}
-          requestService={services.requestService}
-          environmentService={services.environmentService}
-          historyService={services.historyService}
-          fakeDataService={services.fakeDataService}
-          settingsService={services.settingsService}
-          importExportService={services.importExportService}
+          authService={authService}
+          requestService={requestService}
+          environmentService={environmentService}
+          historyService={historyService}
+          fakeDataService={fakeDataService}
+          collectionsService={collectionsService}
+          settingsService={settingsService}
+          importExportService={importExportService}
           theme={theme}
           environmentId={activeEnv}
           onOpenPalette={onOpenPalette}
           onNavigate={setActiveTab}
-          swagger={services.swagger}
+          swagger={swagger}
         />
       </div>
 

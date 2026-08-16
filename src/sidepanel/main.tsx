@@ -23,6 +23,7 @@ import {
   createRemoteRequestService,
   createRemoteEnvironmentService,
   createRemoteHistoryService,
+  createRemoteCollectionsService,
 } from './bridge'
 import { STATE_PUSH, PANEL_PORT, type PanelPortMessage } from '@/content/sidepanel-protocol'
 import { closeSelf } from '@/core/sidebar'
@@ -126,6 +127,7 @@ async function render(root: Root): Promise<void> {
         requestService={createRemoteRequestService()}
         environmentService={createRemoteEnvironmentService()}
         historyService={createRemoteHistoryService()}
+        collectionsService={createRemoteCollectionsService()}
         fakeDataService={new FakeDataService({ adapter, storage, projectId: ctx.projectId, bus })}
         swagger={adapter}
         settingsService={new SettingsService({ storage, bus })}
