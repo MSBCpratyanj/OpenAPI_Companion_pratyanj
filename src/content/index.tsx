@@ -17,7 +17,7 @@ import { docIdentityUrl } from '@/utils'
 import { SwaggerUiAdapter, type AuthSnapshot, type RequestSnapshot } from '@/adapters'
 import { ThemeManager, TokenRefreshService } from '@/services'
 import { AuthenticationService } from '@/modules/authentication'
-import { RequestService } from '@/modules/request'
+import { RequestService, type CustomTemplateInput } from '@/modules/request'
 import { EnvironmentService, type EnvironmentInput } from '@/modules/environment'
 import { HistoryService } from '@/modules/history'
 import { ProductivityService } from '@/modules/productivity'
@@ -280,6 +280,14 @@ async function boot(): Promise<void> {
     'requests.listTemplates': () => requests.listTemplates(),
     'requests.saveOpenAsTemplate': ([name, env]) =>
       requests.saveOpenAsTemplate(name as string, env as string),
+    'requests.createCustomTemplate': ([input]) =>
+      requests.createCustomTemplate(input as CustomTemplateInput),
+    'requests.updateTemplate': ([id, updates]) =>
+      requests.updateTemplate(
+        id as string,
+        updates as Parameters<typeof requests.updateTemplate>[1],
+      ),
+    'requests.locateAndFill': ([id]) => requests.locateAndFill(id as string),
     'requests.applyTemplate': ([id]) => requests.applyTemplate(id as string),
     'requests.deleteTemplate': ([id]) => requests.deleteTemplate(id as string),
     'environments.list': () => environments.list(),

@@ -2,5 +2,9 @@
 export { RequestService } from './request-service'
 export type { RequestServiceOptions } from './request-service'
 export { RequestsPanel } from './RequestsPanel'
-export type { RequestPanelService } from './RequestsPanel'
-export type { RequestRecord, RequestTemplate } from './types'
+export type {
+  RequestPanelService,
+  RequestRecord,
+  RequestTemplate,
+  CustomTemplateInput,
+} from './types'

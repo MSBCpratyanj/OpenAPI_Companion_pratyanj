@@ -4,7 +4,7 @@ import { MAX_SAVED_BODY_BYTES } from '@/constants'
 import type { EventBus } from '@/core/events'
 import type { EndpointInfo, RequestSnapshot, SwaggerAdapter } from '@/adapters'
 import { stableId } from '@/utils'
-import type { RequestRecord, RequestTemplate } from './types'
+import type { CustomTemplateInput, RequestRecord, RequestTemplate } from './types'
 
 export interface RequestServiceOptions {
   storage: StorageService
@@ -190,6 +190,73 @@ export class RequestService {
     return ok(undefined)
   }
 
+  /** Create a custom template directly from user-specified fields. */
+  async createCustomTemplate(input: CustomTemplateInput): Promise<Result<RequestTemplate>> {
+    const trimmedName = input.name.trim()
+    if (!trimmedName) {
+      return err({
+        code: 'REQUEST_INVALID_NAME',
+        message: 'Template name is required',
+        recoverable: true,
+      })
+    }
+    const record: RequestRecord = {
+      endpointId: input.endpointId,
+      method: input.method,
+      environmentId: input.environmentId,
+      body: input.body,
+      query: input.query,
+      path: input.path,
+      headers: input.headers,
+      contentType: input.contentType,
+      updatedAt: this.now(),
+    }
+    return this.saveTemplate(trimmedName, record)
+  }
+
+  /** Update an existing template in-place. */
+  async updateTemplate(
+    templateId: string,
+    updates: Partial<
+      Pick<
+        RequestTemplate,
+        'name' | 'body' | 'query' | 'headers' | 'path' | 'endpointId' | 'method' | 'description'
+      >
+    >,
+  ): Promise<Result<RequestTemplate>> {
+    const got = await this.readData<RequestTemplate>(this.templateKey(templateId))
+    if (!got.ok) return got
+    if (!got.value) return err(notFound(templateId))
+
+    const existing = got.value
+    let newName = existing.name
+    if (updates.name !== undefined) {
+      const trimmed = updates.name.trim()
+      if (!trimmed) {
+        return err({
+          code: 'REQUEST_INVALID_NAME',
+          message: 'Template name cannot be empty',
+          recoverable: true,
+        })
+      }
+      newName = trimmed
+    }
+
+    const updated: RequestTemplate = {
+      ...existing,
+      ...updates,
+      name: newName,
+      updatedAt: this.now(),
+    }
+
+    const written = await this.storage.set(this.templateKey(templateId), updated, {
+      immediate: true,
+    })
+    if (!written.ok) return written
+    this.bus?.publish('TEMPLATE_SAVED', { templateId, endpointId: updated.endpointId })
+    return ok(updated)
+  }
+
   /**
    * Apply = navigate to the operation, fill the saved body, and EXECUTE it (an
    * explicit user action, unlike auto-restore which only fills empty fields).
@@ -200,6 +267,23 @@ export class RequestService {
     if (!got.value) return err(notFound(templateId))
     const target = endpointId ?? got.value.endpointId
     return this.adapter.replay(target, got.value.body)
+  }
+
+  /**
+   * Locate & fill = navigate to the operation in Swagger and populate the saved
+   * body/parameters WITHOUT executing it.
+   */
+  async locateAndFill(templateId: string): Promise<Result<void>> {
+    const got = await this.readData<RequestTemplate>(this.templateKey(templateId))
+    if (!got.ok) return got
+    if (!got.value) return err(notFound(templateId))
+    const { endpointId, body } = got.value
+    const opened = this.adapter.openEndpoint(endpointId)
+    if (!opened.ok) return opened
+    if (body != null) {
+      this.adapter.writeRequest(endpointId, this.toSnapshot(got.value))
+    }
+    return ok(undefined)
   }
 
   // --- helpers ---

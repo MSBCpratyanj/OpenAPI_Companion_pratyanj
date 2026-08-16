@@ -207,8 +207,13 @@ export function createRemoteRequestService(): RequestPanelService {
   return {
     listTemplates: () => rpcResult('requests.listTemplates'),
     saveOpenAsTemplate: (name, env) => rpcResult('requests.saveOpenAsTemplate', name, env),
-    applyTemplate: (id) => rpcResult('requests.applyTemplate', id),
+    createCustomTemplate: (input) => rpcResult('requests.createCustomTemplate', input),
+    updateTemplate: (id, updates) => rpcResult('requests.updateTemplate', id, updates),
     deleteTemplate: (id) => rpcResult('requests.deleteTemplate', id),
+    applyTemplate: (id) => rpcResult('requests.applyTemplate', id),
+    locateAndFill: (id) => rpcResult('requests.locateAndFill', id),
+    listEndpoints: () => latestState.adapter.endpoints,
+    getOpenRequests: () => latestState.adapter.openRequests,
   }
 }
 

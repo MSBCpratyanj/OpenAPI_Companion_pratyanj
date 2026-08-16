@@ -49,8 +49,13 @@ function services() {
     requestService: {
       listTemplates: okAsync([]),
       saveOpenAsTemplate: okAsync(null),
+      createCustomTemplate: okAsync({}),
+      updateTemplate: okAsync({}),
       applyTemplate: okAsync(),
+      locateAndFill: okAsync(),
       deleteTemplate: okAsync(),
+      listEndpoints: vi.fn(() => []),
+      getOpenRequests: vi.fn(() => []),
     } as any,
     environmentService: {
       list: okAsync([]),
