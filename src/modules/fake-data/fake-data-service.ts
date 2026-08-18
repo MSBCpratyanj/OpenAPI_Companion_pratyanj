@@ -1,9 +1,11 @@
 import { ok, err, type Result, type AppError } from '@/types'
 import { projectKey, type StorageService } from '@/core/storage'
 import type { EventBus } from '@/core/events'
-import type { SwaggerAdapter } from '@/adapters'
+import type { SwaggerAdapter, EndpointInfo } from '@/adapters'
 import { generate, type Rng } from './generators'
 import { detectGenerator } from './detect'
+import { synthesizeFromJsonSample, type GenerationMode } from './schema-generator'
+import { generateBulkDataset, type BulkFormat, type BulkDatasetResult } from './bulk-generator'
 import type { FakeDataPreview, FieldInfo, GenerateOptions, GenerateResult } from './types'
 
 export interface FakeDataServiceOptions {
@@ -106,6 +108,118 @@ export class FakeDataService {
       generator: detectGenerator(key, value),
     }))
     return { endpointId: open.endpointId, method: open.method, fields }
+  }
+
+  listEndpoints(): EndpointInfo[] {
+    return this.adapter.listEndpoints()
+  }
+
+  private resolveEndpointSample(endpointId: string): Record<string, unknown> {
+    const openReqs = this.adapter.readOpenRequests()
+    const matching = openReqs.find((r) => r.endpointId === endpointId && r.body)
+    if (matching?.body) {
+      try {
+        const parsed = JSON.parse(matching.body)
+        if (isPlainObject(parsed)) return parsed
+      } catch {
+        // continue
+      }
+    }
+
+    const [, path = ''] = endpointId.split(' ')
+    const lowerPath = path.toLowerCase()
+
+    if (lowerPath.includes('auth') || lowerPath.includes('login') || lowerPath.includes('token')) {
+      return { email: 'user@example.com', password: 'Password123!' }
+    }
+    if (
+      lowerPath.includes('user') ||
+      lowerPath.includes('account') ||
+      lowerPath.includes('member') ||
+      lowerPath.includes('profile')
+    ) {
+      return {
+        name: 'Sarah Connor',
+        email: 'sarah@example.com',
+        username: 'sconnor',
+        role: 'admin',
+        phone: '+1-555-0199',
+        department: 'Engineering',
+      }
+    }
+    if (
+      lowerPath.includes('product') ||
+      lowerPath.includes('item') ||
+      lowerPath.includes('inventory')
+    ) {
+      return {
+        name: 'Wireless Headphones',
+        price: 49.99,
+        sku: 'SKU-ELEC-100',
+        description: 'High quality wireless noise canceling headphones',
+        inStock: true,
+      }
+    }
+    if (
+      lowerPath.includes('order') ||
+      lowerPath.includes('checkout') ||
+      lowerPath.includes('payment')
+    ) {
+      return {
+        orderId: 'ORD-98421',
+        amount: 99.5,
+        currency: 'USD',
+        cardNumber: '4532-0000-0000-0000',
+        shippingAddress: {
+          street: '123 Market St',
+          city: 'San Francisco',
+          state: 'CA',
+          postalCode: '94105',
+          country: 'United States',
+        },
+      }
+    }
+
+    return {
+      name: 'Sample Entity',
+      title: 'Sample Title',
+      description: 'Sample description text',
+      status: 'active',
+      count: 10,
+    }
+  }
+
+  async generateMockPayload(
+    endpointId: string,
+    mode: GenerationMode = 'realistic',
+    arrayCount = 2,
+  ): Promise<Result<string>> {
+    const sample = this.resolveEndpointSample(endpointId)
+    const result = synthesizeFromJsonSample(sample, { mode, arrayCount, rng: this.rng })
+    return ok(JSON.stringify(result, null, 2))
+  }
+
+  async generateBulk(
+    endpointId: string,
+    count = 10,
+    format: BulkFormat = 'json',
+    mode: GenerationMode = 'realistic',
+  ): Promise<Result<BulkDatasetResult>> {
+    const sample = this.resolveEndpointSample(endpointId)
+    const result = generateBulkDataset(sample, { count, format, mode, rng: this.rng })
+    return ok(result)
+  }
+
+  async injectPayload(endpointId: string, bodyText: string): Promise<Result<void>> {
+    const [method = 'post'] = endpointId.split(' ')
+    const written = this.adapter.writeRequest(endpointId, {
+      endpointId,
+      method: method.toLowerCase(),
+      body: bodyText,
+    })
+    if (!written.ok) return written
+    this.bus?.publish('FAKE_DATA_GENERATED', { endpointId, fieldCount: 1 })
+    return ok(undefined)
   }
 
   /**
