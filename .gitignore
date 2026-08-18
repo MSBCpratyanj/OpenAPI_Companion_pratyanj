@@ -25,9 +25,12 @@ npm-debug.log*
 .env.*
 !.env.example
 
-# OS / editor
+# OS / editor / IDE
 .DS_Store
 .idea/
+.vscode/
+.scannerwork/
+.sonarlint/
 *.swp
 
 # Firefox build output
