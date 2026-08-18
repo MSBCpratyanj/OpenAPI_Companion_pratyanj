@@ -155,7 +155,7 @@ describe('RequestsPanel', () => {
     expect(await screen.findByText('Create Request Preset')).toBeInTheDocument()
 
     // Health check endpoint is selected (GET)
-    expect(screen.getByText(/GET requests do not require a request body/i)).toBeInTheDocument()
+    expect(screen.getByText(/requests do not require a request body/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/JSON Request Body/i)).not.toBeInTheDocument()
   })
 

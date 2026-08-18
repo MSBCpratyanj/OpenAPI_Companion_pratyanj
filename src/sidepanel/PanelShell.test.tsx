@@ -78,6 +78,10 @@ function services() {
       previewOpenRequest: vi.fn(() => null),
       generateAll: okAsync({ endpointId: '', fieldCount: 0 }),
       regenerateField: okAsync({ endpointId: '', fieldCount: 0 }),
+      listEndpoints: vi.fn(() => []),
+      generateMockPayload: okAsync('{}'),
+      generateBulk: okAsync({ format: 'json', count: 0, text: '[]', records: [] }),
+      injectPayload: okAsync(undefined),
     } as any,
     settingsService: {
       getPreferences: vi.fn(async () => ({ autoBackup: false, historyLimit: 1000 })),

@@ -442,7 +442,7 @@ export function RequestsPanel({ service, bus, environmentId }: RequestsPanelProp
     const [method = 'get'] = createEndpointId.split(' ')
     const supportsBody = ['post', 'put', 'patch'].includes(method.toLowerCase())
 
-    let trimmedBody = supportsBody ? createBody.trim() : ''
+    const trimmedBody = supportsBody ? createBody.trim() : ''
     if (supportsBody && trimmedBody) {
       try {
         JSON.parse(trimmedBody)
@@ -510,7 +510,7 @@ export function RequestsPanel({ service, bus, environmentId }: RequestsPanelProp
     ).toLowerCase()
     const supportsBody = ['post', 'put', 'patch'].includes(editMethod)
 
-    let trimmedBody = supportsBody ? editBody.trim() : ''
+    const trimmedBody = supportsBody ? editBody.trim() : ''
     if (supportsBody && trimmedBody) {
       try {
         JSON.parse(trimmedBody)
