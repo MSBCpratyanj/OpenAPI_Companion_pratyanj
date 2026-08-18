@@ -111,22 +111,28 @@ Known Issues
 
 ---
 
-# [Unreleased]
+# [1.1.0] - 2026-08-18
 
 ## Added
+* **Mock Payload & Dataset Studio**:
+  * **Schema-Aware Payload Synthesizer**: Generates realistic, minimal, boundary/edge-case, and security fuzzing (SQLi/XSS/Unicode) payloads recursively from any OpenAPI schema or target endpoint.
+  * **Bulk Mock Data & Database Seeder**: Generates 1–100 records in formatted JSON or dot-notated CSV with RFC-4180 escaping, complete with file download.
+  * **Expanded 60+ Generator Catalog**: Personal, location, tech/internet, commerce, system/HTTP, and QA security vectors with international diversity pools.
+  * **4-in-1 Studio Interface**: `⚡ Live Fill`, `🛠️ Mock Studio`, `📦 Bulk Seeder`, and `🎲 Library` with individual card sample regeneration.
+* **Request Manager Enhancements**:
+  * Formatted JSON body presets with quick copy.
+  * Searchable endpoint dropdown selector with method filtering tags.
 
-* Documentation-first development process
-* Product roadmap
-* Technical architecture
-* Storage architecture
-* Security model
-* Functional requirements
-* Feature specifications
-* User flows
-* Edge case documentation
-* **Fake Data Generator** (Sprint 11): 21 offline generators, name-and-value field-type detection, one-click *Generate test data* / *Regenerate all* / per-field regenerate into the open request body, preserving manual edits and leaving unsupported fields unchanged
-* **Productivity Tools** (Sprint 12): ⌘K endpoint search with favorites & recently-used, one-click jump-to-endpoint, and copy-as-code (cURL / Fetch / Axios) — all offline and per-project
-* **Settings & Import/Export** (Sprint 13): appearance/theme, storage-usage metrics, clear per-project or all data (with confirmation), and versioned JSON backup / restore with strict validation and a preview — completing the feature-complete MVP
+---
+
+# [1.0.1] - 2026-08-16
+
+## Fixed
+* Fixed side panel tab persistence and connection lifecycle.
+
+---
+
+# [Unreleased]
 
 ---
 
