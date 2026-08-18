@@ -61,7 +61,7 @@ describe('detectGenerator — value-type fallback', () => {
   it('falls back to boolean / integer / float by value', () => {
     expect(detectGenerator('flag', true)).toBe('boolean')
     expect(detectGenerator('count', 5)).toBe('integer')
-    expect(detectGenerator('ratio', 1.5)).toBe('float')
+    expect(detectGenerator('customMetric', 1.5)).toBe('float')
   })
 
   it('returns null for unrecognized string fields (left unchanged)', () => {

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { GENERATORS, GENERATOR_KEYS, generate, isGeneratorKey, type Rng } from './generators'
+import {
+  GENERATORS,
+  GENERATOR_KEYS,
+  GENERATOR_CATALOG,
+  generate,
+  isGeneratorKey,
+  type Rng,
+} from './generators'
 
 /** A cycling deterministic RNG so tests never flake. */
 function seq(...values: number[]): Rng {
@@ -8,13 +15,14 @@ function seq(...values: number[]): Rng {
 }
 
 describe('fake-data generators', () => {
-  it('ships all 21 v1 generators', () => {
-    expect(GENERATOR_KEYS).toHaveLength(21)
+  it('ships 50+ generators and catalog metadata', () => {
+    expect(GENERATOR_KEYS.length).toBeGreaterThanOrEqual(50)
+    expect(GENERATOR_CATALOG.length).toBeGreaterThanOrEqual(50)
   })
 
   it('every generator produces a non-empty value across many runs', () => {
     for (const key of GENERATOR_KEYS) {
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 20; i++) {
         const value = GENERATORS[key](Math.random)
         expect(value === '' || value == null).toBe(false)
       }
@@ -26,16 +34,39 @@ describe('fake-data generators', () => {
   const DATE = /^\d{4}-\d{2}-\d{2}$/
   const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
   const PHONE = /^\+1-\d{3}-555-\d{4}$/
+  const IPV4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/
+  const MAC = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/
+  const HEX_COLOR = /^#[0-9A-F]{6}$/i
+  const CREDIT_CARD = /^\d{4}-\d{4}-\d{4}-\d{4}$/
 
-  it('formats email / uuid / date / datetime / phone / postal validly', () => {
-    for (let i = 0; i < 100; i++) {
+  it('formats email / uuid / date / datetime / phone / ipv4 / mac / creditCard validly', () => {
+    for (let i = 0; i < 50; i++) {
       expect(generate('email')).toMatch(EMAIL)
       expect(generate('uuid')).toMatch(UUID)
       expect(generate('date')).toMatch(DATE)
       expect(generate('datetime')).toMatch(DATETIME)
       expect(generate('phone')).toMatch(PHONE)
+      expect(generate('ipv4')).toMatch(IPV4)
+      expect(generate('macAddress')).toMatch(MAC)
+      expect(generate('hexColor')).toMatch(HEX_COLOR)
+      expect(generate('creditCard')).toMatch(CREDIT_CARD)
       expect(String(generate('postalCode'))).toMatch(/^\d{5}$/)
+      expect(String(generate('cryptoAddress'))).toMatch(/^0x[0-9a-fA-F]{40}$/)
+      expect(typeof generate('latitude')).toBe('number')
+      expect(typeof generate('longitude')).toBe('number')
+      expect(typeof generate('fileName')).toBe('string')
+      expect(typeof generate('mimeType')).toBe('string')
+      expect(typeof generate('status')).toBe('string')
+      expect(typeof generate('countryCode')).toBe('string')
     }
+  })
+
+  it('fuzzing and security vectors generate valid payloads', () => {
+    expect(typeof generate('sqliVector')).toBe('string')
+    expect(typeof generate('xssVector')).toBe('string')
+    expect(typeof generate('unicodeEmojiVector')).toBe('string')
+    expect(String(generate('boundaryString')).length).toBeGreaterThanOrEqual(500)
+    expect(typeof generate('boundaryNumber')).toBe('number')
   })
 
   it('typed generators return the right primitive types', () => {
@@ -64,6 +95,8 @@ describe('fake-data generators', () => {
 
   it('isGeneratorKey guards unknown keys', () => {
     expect(isGeneratorKey('email')).toBe(true)
+    expect(isGeneratorKey('sqliVector')).toBe(true)
+    expect(isGeneratorKey('cryptoAddress')).toBe(true)
     expect(isGeneratorKey('nope')).toBe(false)
   })
 

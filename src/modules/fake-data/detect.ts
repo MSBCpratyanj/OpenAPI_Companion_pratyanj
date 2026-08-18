@@ -25,6 +25,9 @@ const NAME_RULES: ReadonlyArray<[(n: string) => boolean, GeneratorKey]> = [
       n.includes('lastname') || n.includes('surname') || n.includes('familyname') || n === 'lname',
     'lastName',
   ],
+  [(n) => n.includes('prefix') || n.includes('salutation') || n.includes('honorific'), 'prefix'],
+  [(n) => n.includes('suffix'), 'suffix'],
+  [(n) => n.includes('gender') || n === 'sex', 'gender'],
   [
     (n) =>
       n.includes('fullname') ||
@@ -33,6 +36,16 @@ const NAME_RULES: ReadonlyArray<[(n: string) => boolean, GeneratorKey]> = [
       n === 'name',
     'fullName',
   ],
+  [
+    (n) =>
+      n.includes('jobtitle') ||
+      n.includes('position') ||
+      n.includes('role') ||
+      n.includes('designation') ||
+      n === 'title',
+    'jobTitle',
+  ],
+  [(n) => n.includes('department') || n.includes('dept') || n.includes('division'), 'department'],
   [
     (n) =>
       n.includes('company') ||
@@ -54,8 +67,83 @@ const NAME_RULES: ReadonlyArray<[(n: string) => boolean, GeneratorKey]> = [
   [(n) => n.includes('address') || n.includes('street'), 'address'],
   [(n) => n.includes('city') || n.includes('town'), 'city'],
   [(n) => n.includes('state') || n.includes('province') || n.includes('region'), 'state'],
+  [(n) => n.includes('countrycode') || n.includes('iso2') || n === 'cc', 'countryCode'],
   [(n) => n.includes('country') || n.includes('nation'), 'country'],
   [(n) => n.includes('zip') || n.includes('postal') || n.includes('postcode'), 'postalCode'],
+  [(n) => n.includes('latitude') || n === 'lat', 'latitude'],
+  [(n) => n.includes('longitude') || n === 'lng' || n === 'lon', 'longitude'],
+  // Tech & Internet
+  [(n) => n.includes('ipv6'), 'ipv6'],
+  [(n) => n.includes('ipv4') || n.includes('ipaddress') || n === 'ip', 'ipv4'],
+  [(n) => n.includes('macaddress') || n === 'mac', 'macAddress'],
+  [(n) => n.includes('jwt') || n.includes('accesstoken') || n.includes('bearertoken'), 'jwtToken'],
+  [(n) => n.includes('useragent') || n === 'ua', 'userAgent'],
+  [(n) => n.includes('hexcolor') || n === 'color' || n.endsWith('color'), 'hexColor'],
+  [(n) => n.includes('semver') || n === 'version' || n.endsWith('version'), 'semver'],
+  [(n) => n.includes('port') || n === 'serverport', 'port'],
+  [(n) => n.includes('domain') || n.includes('hostname'), 'domain'],
+  [(n) => n.includes('locale') || n === 'loc', 'locale'],
+  [(n) => n.includes('language') || n === 'lang', 'language'],
+  [(n) => n.includes('mimetype') || n.includes('contenttype') || n === 'mediatype', 'mimeType'],
+  [(n) => n.includes('fileext') || n === 'extension' || n === 'ext', 'fileExtension'],
+  [(n) => n.includes('filename') || n.includes('attachment') || n === 'file', 'fileName'],
+  [(n) => n.includes('slug') || n.includes('permalink'), 'slug'],
+  [
+    (n) =>
+      n.includes('avatar') ||
+      n.includes('picture') ||
+      n.includes('photo') ||
+      n.includes('thumbnail') ||
+      n.includes('profileimage'),
+    'avatarUrl',
+  ],
+  // Finance & Commerce
+  [
+    (n) => n.includes('creditcard') || n.includes('cardnumber') || n === 'card' || n === 'pan',
+    'creditCard',
+  ],
+  [(n) => n.includes('currency') || n === 'currencycode', 'currencyCode'],
+  [(n) => n.includes('iban') || n.includes('bankaccount'), 'iban'],
+  [
+    (n) =>
+      n.includes('wallet') ||
+      n.includes('crypto') ||
+      n.includes('ethaddress') ||
+      n.includes('btcaddress'),
+    'cryptoAddress',
+  ],
+  [(n) => n.includes('sku') || n.includes('itemcode') || n.includes('productcode'), 'sku'],
+  [
+    (n) => n.includes('barcode') || n.includes('ean') || n.includes('upc') || n.includes('isbn'),
+    'barcode',
+  ],
+  [(n) => n.includes('productname') || n.includes('itemname'), 'productName'],
+  // System & HTTP
+  [(n) => n === 'status' || n.endsWith('status'), 'status'],
+  [(n) => n === 'priority' || n.includes('severity') || n.includes('urgency'), 'priority'],
+  [(n) => n === 'method' || n.includes('httpmethod'), 'httpMethod'],
+  [(n) => n.includes('statuscode') || n.includes('httpstatus'), 'httpStatusCode'],
+  // Content & Text
+  [
+    (n) =>
+      n.includes('paragraph') ||
+      n.includes('description') ||
+      n.includes('bio') ||
+      n.includes('content') ||
+      n.includes('summary') ||
+      n.includes('notes') ||
+      n.includes('comment'),
+    'loremParagraph',
+  ],
+  [
+    (n) =>
+      n.includes('sentence') ||
+      n.includes('headline') ||
+      n.includes('subject') ||
+      n.includes('tagline') ||
+      n.includes('subtitle'),
+    'loremSentence',
+  ],
   // datetime before date, since "datetime" contains "date".
   [
     (n) =>
@@ -80,7 +168,23 @@ const NAME_RULES: ReadonlyArray<[(n: string) => boolean, GeneratorKey]> = [
       n.includes('homepage'),
     'url',
   ],
-  // Money-ish fields → decimal (2dp). Keeps the `decimal` generator reachable.
+  // Scores, ratings & percentages
+  [(n) => n.includes('rating') || n.includes('score') || n.includes('stars'), 'rating'],
+  [(n) => n.includes('percent') || n.includes('ratio') || n === 'pct', 'percentage'],
+  // Boolean-ish flags
+  [
+    (n) =>
+      n.startsWith('is') ||
+      n.startsWith('has') ||
+      n.startsWith('should') ||
+      n.startsWith('can') ||
+      n.startsWith('enable') ||
+      n === 'active' ||
+      n === 'enabled' ||
+      n === 'verified',
+    'boolean',
+  ],
+  // Money-ish fields → price / decimal (2dp)
   [
     (n) =>
       n.includes('amount') ||
@@ -97,42 +201,49 @@ const NAME_RULES: ReadonlyArray<[(n: string) => boolean, GeneratorKey]> = [
   ],
   [
     (n) =>
-      n.startsWith('is') ||
-      n.startsWith('has') ||
-      n.startsWith('can') ||
-      n.startsWith('should') ||
-      n.includes('enabled') ||
-      n.includes('active'),
-    'boolean',
+      n === 'id' ||
+      n.endsWith('uuid') ||
+      n === 'guid' ||
+      /(user|account|order|item|product|customer|member|client|parent|org|session|auth|group|entity)id$/.test(
+        n,
+      ),
+    'uuid',
   ],
 ]
 
-function normalize(name: string): string {
-  return name.toLowerCase().replace(/[_\-\s]/g, '')
-}
-
-/** Detect id/uuid fields on the RAW name to respect camelCase / _id boundaries. */
-function looksLikeId(raw: string): boolean {
-  const lower = raw.toLowerCase()
-  if (lower === 'uuid' || lower === 'guid' || lower === 'id') return true
-  return /(^|_)id$/i.test(raw) || /[a-z]Id$/.test(raw)
+/** Normalise a field name: lowercase, strip punctuation and whitespace. */
+export function normalizeFieldName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
 /**
- * Choose a generator for a field. `value` is the field's current value, used as
- * a fallback signal. Returns `null` when nothing fits (leave the field alone).
+ * Detect the best generator for a field (name + value). Pure, side-effect-free.
+ * Returns `null` if no rule matches and value is non-primitive/empty/null.
  */
-export function detectGenerator(fieldName: string, value?: unknown): GeneratorKey | null {
-  if (looksLikeId(fieldName)) return 'uuid'
+export function detectGenerator(name: string, value?: unknown): GeneratorKey | null {
+  const norm = normalizeFieldName(name)
 
-  const n = normalize(fieldName)
-  for (const [test, key] of NAME_RULES) {
-    if (test(n)) return key
+  // 1. Try name heuristics (strongest signal)
+  for (const [match, key] of NAME_RULES) {
+    if (match(norm)) return key
   }
 
-  // Value-type fallback (EC-030): only for types we can generate meaningfully.
+  // 2. Fall back to current value type heuristics
   if (typeof value === 'boolean') return 'boolean'
-  if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'float'
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? 'integer' : 'float'
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    // ISO date/datetime string detection
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) return 'datetime'
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'date'
+    // UUID v4 format
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return 'uuid'
+    // Email format
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'email'
+    // URL format
+    if (/^https?:\/\//i.test(value)) return 'url'
+  }
 
   return null
 }
